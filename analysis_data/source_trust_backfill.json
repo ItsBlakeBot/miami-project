@@ -1,0 +1,293 @@
+{
+  "as_of_utc": "2026-03-22T11:57:58Z",
+  "covered_days": 9,
+  "covered_days_list": [
+    "2026-03-14",
+    "2026-03-15",
+    "2026-03-16",
+    "2026-03-17",
+    "2026-03-18",
+    "2026-03-19",
+    "2026-03-20",
+    "2026-03-21",
+    "2026-03-22"
+  ],
+  "end_date": "2026-03-22",
+  "lookback_days": 45,
+  "metrics_by_family": {
+    "openmeteo": {
+      "bias": -0.907882,
+      "mae": 2.9792,
+      "n": 5934,
+      "rmse": 3.868057
+    },
+    "wethr": {
+      "bias": -1.194512,
+      "mae": 6.392617,
+      "n": 4054,
+      "rmse": 7.402208
+    }
+  },
+  "metrics_by_source_key": {
+    "openmeteo:ECMWF-AIFS": {
+      "bias": -0.555085,
+      "mae": 3.388983,
+      "n": 118,
+      "rmse": 4.337489
+    },
+    "openmeteo:ECMWF-IFS": {
+      "bias": -1.564721,
+      "mae": 2.870305,
+      "n": 394,
+      "rmse": 3.662504
+    },
+    "openmeteo:ECMWF-IFS-Ensemble": {
+      "bias": -1.429581,
+      "mae": 2.77101,
+      "n": 406,
+      "rmse": 3.598559
+    },
+    "openmeteo:GEM-Global": {
+      "bias": -3.002128,
+      "mae": 3.832447,
+      "n": 376,
+      "rmse": 4.487417
+    },
+    "openmeteo:GFS-Ensemble": {
+      "bias": 1.9456,
+      "mae": 4.09035,
+      "n": 400,
+      "rmse": 4.628783
+    },
+    "openmeteo:GFS-Global": {
+      "bias": -1.392099,
+      "mae": 2.78809,
+      "n": 848,
+      "rmse": 3.855376
+    },
+    "openmeteo:GFS-GraphCast": {
+      "bias": 1.170202,
+      "mae": 2.725253,
+      "n": 396,
+      "rmse": 3.465778
+    },
+    "openmeteo:GFS-HRRR": {
+      "bias": -1.331723,
+      "mae": 2.890246,
+      "n": 1056,
+      "rmse": 3.983678
+    },
+    "openmeteo:ICON-Global": {
+      "bias": -0.473333,
+      "mae": 2.602564,
+      "n": 390,
+      "rmse": 3.404341
+    },
+    "openmeteo:JMA-GSM": {
+      "bias": -1.578415,
+      "mae": 2.977322,
+      "n": 366,
+      "rmse": 4.006262
+    },
+    "openmeteo:KNMI-Harmonie": {
+      "bias": -1.596465,
+      "mae": 2.80101,
+      "n": 396,
+      "rmse": 3.502979
+    },
+    "openmeteo:MetNo-Nordic": {
+      "bias": -1.596465,
+      "mae": 2.80101,
+      "n": 396,
+      "rmse": 3.502979
+    },
+    "openmeteo:UKMO-Global": {
+      "bias": 0.958418,
+      "mae": 2.874745,
+      "n": 392,
+      "rmse": 3.795449
+    },
+    "wethr:ARPEGE": {
+      "bias": -1.329041,
+      "mae": 5.188219,
+      "n": 146,
+      "rmse": 6.23859
+    },
+    "wethr:ECMWF-IFS": {
+      "bias": -1.5925,
+      "mae": 5.375577,
+      "n": 104,
+      "rmse": 6.62149
+    },
+    "wethr:GEFS": {
+      "bias": 4.478333,
+      "mae": 6.386667,
+      "n": 24,
+      "rmse": 6.91676
+    },
+    "wethr:GEM-GDPS": {
+      "bias": -0.842941,
+      "mae": 5.314118,
+      "n": 68,
+      "rmse": 6.312806
+    },
+    "wethr:GFS": {
+      "bias": 2.840674,
+      "mae": 6.854157,
+      "n": 178,
+      "rmse": 7.380562
+    },
+    "wethr:GFS-MOS": {
+      "bias": 2.9375,
+      "mae": 3.4375,
+      "n": 16,
+      "rmse": 3.733296
+    },
+    "wethr:HRRR": {
+      "bias": -3.106647,
+      "mae": 6.740311,
+      "n": 868,
+      "rmse": 8.026347
+    },
+    "wethr:ICON": {
+      "bias": -2.520882,
+      "mae": 5.039412,
+      "n": 136,
+      "rmse": 6.736692
+    },
+    "wethr:JMA": {
+      "bias": -0.531622,
+      "mae": 5.16,
+      "n": 148,
+      "rmse": 6.379255
+    },
+    "wethr:LAV-MOS": {
+      "bias": 0.391089,
+      "mae": 6.589109,
+      "n": 606,
+      "rmse": 7.002239
+    },
+    "wethr:NAM": {
+      "bias": -1.651071,
+      "mae": 6.712738,
+      "n": 168,
+      "rmse": 7.79941
+    },
+    "wethr:NAM-MOS": {
+      "bias": 3.25,
+      "mae": 4.0,
+      "n": 24,
+      "rmse": 4.536886
+    },
+    "wethr:NAM4KM": {
+      "bias": -2.5485,
+      "mae": 6.431125,
+      "n": 160,
+      "rmse": 7.711681
+    },
+    "wethr:NBM": {
+      "bias": 0.387417,
+      "mae": 6.652455,
+      "n": 782,
+      "rmse": 7.067122
+    },
+    "wethr:NBS-MOS": {
+      "bias": 2.5,
+      "mae": 3.5,
+      "n": 18,
+      "rmse": 3.851407
+    },
+    "wethr:RAP": {
+      "bias": -4.854934,
+      "mae": 6.725022,
+      "n": 458,
+      "rmse": 8.583247
+    },
+    "wethr:UKMO": {
+      "bias": 1.854267,
+      "mae": 6.125467,
+      "n": 150,
+      "rmse": 6.826304
+    }
+  },
+  "min_days_target": 15,
+  "missing_actual_rows": 0,
+  "missing_issued_rows": 0,
+  "records": 9988,
+  "reliability_by_family_ttl_bucket": {
+    "openmeteo": {
+      "0-3h": {
+        "bias": -0.594182,
+        "mae": 1.948909,
+        "n": 110,
+        "rmse": 2.470814
+      },
+      "12-24h": {
+        "bias": -0.663929,
+        "mae": 2.98631,
+        "n": 1092,
+        "rmse": 3.956102
+      },
+      "24h+": {
+        "bias": -0.784499,
+        "mae": 3.372839,
+        "n": 3036,
+        "rmse": 4.341413
+      },
+      "3-6h": {
+        "bias": -0.400215,
+        "mae": 2.425591,
+        "n": 186,
+        "rmse": 2.977863
+      },
+      "6-12h": {
+        "bias": -1.417762,
+        "mae": 2.325854,
+        "n": 1510,
+        "rmse": 2.836616
+      }
+    },
+    "wethr": {
+      "0-3h": {
+        "bias": -2.204,
+        "mae": 7.456,
+        "n": 50,
+        "rmse": 8.339376
+      },
+      "12-24h": {
+        "bias": -2.225055,
+        "mae": 6.241103,
+        "n": 916,
+        "rmse": 7.392199
+      },
+      "24h+": {
+        "bias": 0.035186,
+        "mae": 5.50733,
+        "n": 970,
+        "rmse": 6.625585
+      },
+      "3-6h": {
+        "bias": -1.968254,
+        "mae": 6.904762,
+        "n": 126,
+        "rmse": 7.821475
+      },
+      "6-12h": {
+        "bias": -1.245146,
+        "mae": 6.834292,
+        "n": 1992,
+        "rmse": 7.706602
+      }
+    }
+  },
+  "start_date": "2026-02-05",
+  "station": "KMIA",
+  "sufficient_days": false,
+  "ttl_buckets": [
+    "0-3h",
+    "3-6h",
+    "6-12h",
+    "12-24h",
+    "24h+"
+  ]
+}

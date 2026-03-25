@@ -1,0 +1,9 @@
+{
+  "boa_min_updates": 5,
+  "regime_confidence_gate": 0.3,
+  "regime_mu_bias_min_f": 0.1,
+  "skf_corrections_enabled": false,
+  "letkf_min_obs": 2,
+  "letkf_sage_husa_b": 0.97,
+  "letkf_max_inflation": 2.0
+}

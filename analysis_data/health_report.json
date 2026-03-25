@@ -1,0 +1,183 @@
+{
+  "report_date": "2026-03-23",
+  "station": "KMIA",
+  "n_alerts": 19,
+  "has_critical": true,
+  "alerts": [
+    {
+      "severity": "critical",
+      "category": "crps",
+      "message": "Model wethr:HRRR MAE (7.5\u00b0F) exceeds threshold (4.0\u00b0F)",
+      "metric_value": 7.533,
+      "threshold": 4.0
+    },
+    {
+      "severity": "critical",
+      "category": "crps",
+      "message": "Model wethr:RAP MAE (7.2\u00b0F) exceeds threshold (4.0\u00b0F)",
+      "metric_value": 7.233,
+      "threshold": 4.0
+    },
+    {
+      "severity": "critical",
+      "category": "crps",
+      "message": "Model wethr:LAV-MOS MAE (7.3\u00b0F) exceeds threshold (4.0\u00b0F)",
+      "metric_value": 7.319,
+      "threshold": 4.0
+    },
+    {
+      "severity": "critical",
+      "category": "crps",
+      "message": "Model wethr:NBM MAE (7.3\u00b0F) exceeds threshold (4.0\u00b0F)",
+      "metric_value": 7.278,
+      "threshold": 4.0
+    },
+    {
+      "severity": "critical",
+      "category": "crps",
+      "message": "Model wethr:UKMO MAE (6.7\u00b0F) exceeds threshold (4.0\u00b0F)",
+      "metric_value": 6.661,
+      "threshold": 4.0
+    },
+    {
+      "severity": "critical",
+      "category": "crps",
+      "message": "Model wethr:ECMWF-IFS MAE (6.2\u00b0F) exceeds threshold (4.0\u00b0F)",
+      "metric_value": 6.18,
+      "threshold": 4.0
+    },
+    {
+      "severity": "warning",
+      "category": "crps",
+      "message": "Model wethr:ICON MAE (5.6\u00b0F) exceeds threshold (4.0\u00b0F)",
+      "metric_value": 5.552,
+      "threshold": 4.0
+    },
+    {
+      "severity": "warning",
+      "category": "crps",
+      "message": "Model wethr:GEM-GDPS MAE (5.9\u00b0F) exceeds threshold (4.0\u00b0F)",
+      "metric_value": 5.871,
+      "threshold": 4.0
+    },
+    {
+      "severity": "warning",
+      "category": "crps",
+      "message": "Model wethr:JMA MAE (5.5\u00b0F) exceeds threshold (4.0\u00b0F)",
+      "metric_value": 5.524,
+      "threshold": 4.0
+    },
+    {
+      "severity": "warning",
+      "category": "crps",
+      "message": "Model wethr:ARPEGE MAE (5.9\u00b0F) exceeds threshold (4.0\u00b0F)",
+      "metric_value": 5.904,
+      "threshold": 4.0
+    },
+    {
+      "severity": "critical",
+      "category": "crps",
+      "message": "Model wethr:NAM MAE (7.8\u00b0F) exceeds threshold (4.0\u00b0F)",
+      "metric_value": 7.788,
+      "threshold": 4.0
+    },
+    {
+      "severity": "critical",
+      "category": "crps",
+      "message": "Model wethr:NAM4KM MAE (7.6\u00b0F) exceeds threshold (4.0\u00b0F)",
+      "metric_value": 7.567,
+      "threshold": 4.0
+    },
+    {
+      "severity": "critical",
+      "category": "crps",
+      "message": "Model wethr:GFS MAE (7.4\u00b0F) exceeds threshold (4.0\u00b0F)",
+      "metric_value": 7.404,
+      "threshold": 4.0
+    },
+    {
+      "severity": "critical",
+      "category": "crps",
+      "message": "Model wethr:GEFS MAE (6.4\u00b0F) exceeds threshold (4.0\u00b0F)",
+      "metric_value": 6.387,
+      "threshold": 4.0
+    },
+    {
+      "severity": "warning",
+      "category": "crps",
+      "message": "Model openmeteo:GFS-Ensemble MAE (4.2\u00b0F) exceeds threshold (4.0\u00b0F)",
+      "metric_value": 4.167,
+      "threshold": 4.0
+    },
+    {
+      "severity": "critical",
+      "category": "crps",
+      "message": "Model herbie:GFS-Herbie MAE (7.9\u00b0F) exceeds threshold (4.0\u00b0F)",
+      "metric_value": 7.905,
+      "threshold": 4.0
+    },
+    {
+      "severity": "critical",
+      "category": "crps",
+      "message": "Model herbie:NBM-Herbie MAE (33.6\u00b0F) exceeds threshold (4.0\u00b0F)",
+      "metric_value": 33.638,
+      "threshold": 4.0
+    },
+    {
+      "severity": "warning",
+      "category": "crps",
+      "message": "Model herbie:ECMWF-IFS-Herbie MAE (5.4\u00b0F) exceeds threshold (4.0\u00b0F)",
+      "metric_value": 5.425,
+      "threshold": 4.0
+    },
+    {
+      "severity": "critical",
+      "category": "sharpe",
+      "message": "Rolling Sharpe ratio is negative (-8.94) \u2014 losing money",
+      "metric_value": -8.938,
+      "threshold": 0.0
+    }
+  ],
+  "brier_scores": {
+    "overall": 0.0687
+  },
+  "crps_scores": {
+    "wethr:HRRR": 7.533,
+    "wethr:RAP": 7.233,
+    "wethr:LAV-MOS": 7.319,
+    "wethr:NBM": 7.278,
+    "wethr:UKMO": 6.661,
+    "wethr:ECMWF-IFS": 6.18,
+    "wethr:ICON": 5.552,
+    "wethr:GEM-GDPS": 5.871,
+    "wethr:JMA": 5.524,
+    "wethr:ARPEGE": 5.904,
+    "wethr:NAM": 7.788,
+    "wethr:NAM4KM": 7.567,
+    "wethr:GFS": 7.404,
+    "wethr:NBS-MOS": 3.5,
+    "wethr:NAM-MOS": 4.0,
+    "wethr:GFS-MOS": 3.438,
+    "wethr:GEFS": 6.387,
+    "openmeteo:GFS-GraphCast": 2.606,
+    "openmeteo:GFS-HRRR": 2.085,
+    "openmeteo:GFS-Global": 2.188,
+    "openmeteo:ECMWF-IFS": 2.437,
+    "openmeteo:ECMWF-AIFS": 2.068,
+    "openmeteo:ICON-Global": 2.099,
+    "openmeteo:GEM-Global": 3.327,
+    "openmeteo:JMA-GSM": 2.613,
+    "openmeteo:UKMO-Global": 2.743,
+    "openmeteo:MetNo-Nordic": 2.207,
+    "openmeteo:KNMI-Harmonie": 2.207,
+    "openmeteo:GFS-Ensemble": 4.167,
+    "openmeteo:ECMWF-IFS-Ensemble": 2.35,
+    "herbie:GFS-Herbie": 7.905,
+    "herbie:NBM-Herbie": 33.638,
+    "herbie:ECMWF-IFS-Herbie": 5.425
+  },
+  "calibration_slope": null,
+  "rolling_sharpe": -8.938,
+  "trading_regime": "degraded",
+  "n_settlement_days": 10
+}

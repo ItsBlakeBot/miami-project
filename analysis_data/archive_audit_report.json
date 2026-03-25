@@ -1,0 +1,210 @@
+{
+  "db_path": "miami_collector.db",
+  "generated_at_utc": "2026-03-21T17:13:45Z",
+  "is_replay_ready": true,
+  "missing_tables": [],
+  "station": "KMIA",
+  "table_audits": [
+    {
+      "freshness_minutes": 6.57,
+      "freshness_mode": "realtime",
+      "freshness_status": "fresh",
+      "latest_timestamp": "2026-03-21T17:07:11.461Z",
+      "missing_columns": [],
+      "present": true,
+      "required_columns": [
+        "market_type",
+        "settlement_ceil",
+        "settlement_floor",
+        "target_date",
+        "ticker"
+      ],
+      "row_count": 48,
+      "table": "active_brackets",
+      "timestamp_column": "updated_at"
+    },
+    {
+      "freshness_minutes": -8986.24,
+      "freshness_mode": "forecast_validity",
+      "freshness_status": "future_expected",
+      "latest_timestamp": "2026-03-27T23:00",
+      "missing_columns": [],
+      "present": true,
+      "required_columns": [
+        "cape",
+        "precipitable_water_mm",
+        "station",
+        "valid_time_utc"
+      ],
+      "row_count": 29809,
+      "table": "atmospheric_data",
+      "timestamp_column": "valid_time_utc"
+    },
+    {
+      "freshness_minutes": 0.01,
+      "freshness_mode": "realtime",
+      "freshness_status": "fresh",
+      "latest_timestamp": "2026-03-21T17:13:45Z",
+      "missing_columns": [],
+      "present": true,
+      "required_columns": [
+        "probability",
+        "station",
+        "target_date",
+        "ticker",
+        "timestamp_utc"
+      ],
+      "row_count": 304194,
+      "table": "bracket_estimates",
+      "timestamp_column": "timestamp_utc"
+    },
+    {
+      "freshness_minutes": 16.25,
+      "freshness_mode": "historical",
+      "freshness_status": "historical",
+      "latest_timestamp": "2026-03-21T16:57:31Z",
+      "missing_columns": [],
+      "present": true,
+      "required_columns": [
+        "actual_value_f",
+        "market_type",
+        "settlement_date",
+        "station"
+      ],
+      "row_count": 16,
+      "table": "event_settlements",
+      "timestamp_column": "received_at"
+    },
+    {
+      "freshness_minutes": 13.76,
+      "freshness_mode": "realtime",
+      "freshness_status": "fresh",
+      "latest_timestamp": "2026-03-21T17:00:00Z",
+      "missing_columns": [],
+      "present": true,
+      "required_columns": [
+        "air_temp_f",
+        "dew_point_f",
+        "timestamp_utc"
+      ],
+      "row_count": 531,
+      "table": "fawn_observations",
+      "timestamp_column": "timestamp_utc"
+    },
+    {
+      "freshness_minutes": 16.78,
+      "freshness_mode": "forecast_validity",
+      "freshness_status": "fresh",
+      "latest_timestamp": "2026-03-21T16:56:59Z",
+      "missing_columns": [],
+      "present": true,
+      "required_columns": [
+        "hours_ahead",
+        "snapshot_time_utc",
+        "station",
+        "target_date",
+        "valid_hour_utc"
+      ],
+      "row_count": 2472,
+      "table": "forward_curves",
+      "timestamp_column": "snapshot_time_utc"
+    },
+    {
+      "freshness_minutes": 734.76,
+      "freshness_mode": "historical",
+      "freshness_status": "historical",
+      "latest_timestamp": "2026-03-21T04:59:00Z",
+      "missing_columns": [],
+      "present": true,
+      "required_columns": [
+        "forecast_date",
+        "market_type",
+        "station",
+        "ticker",
+        "winning_side"
+      ],
+      "row_count": 178,
+      "table": "market_settlements",
+      "timestamp_column": "settled_at"
+    },
+    {
+      "freshness_minutes": 0.06,
+      "freshness_mode": "realtime",
+      "freshness_status": "fresh",
+      "latest_timestamp": "2026-03-21T17:13:42Z",
+      "missing_columns": [],
+      "present": true,
+      "required_columns": [
+        "best_no_ask_cents",
+        "best_no_bid_cents",
+        "best_yes_ask_cents",
+        "best_yes_bid_cents",
+        "forecast_date",
+        "market_type",
+        "snapshot_time",
+        "ticker"
+      ],
+      "row_count": 418049,
+      "table": "market_snapshots",
+      "timestamp_column": "snapshot_time"
+    },
+    {
+      "freshness_minutes": 4.15,
+      "freshness_mode": "realtime",
+      "freshness_status": "fresh",
+      "latest_timestamp": "2026-03-21T17:09:37Z",
+      "missing_columns": [],
+      "present": true,
+      "required_columns": [
+        "fetch_time_utc",
+        "forecast_date",
+        "model",
+        "raw_temperature_f",
+        "run_time",
+        "source",
+        "station",
+        "valid_time"
+      ],
+      "row_count": 428335,
+      "table": "model_forecasts",
+      "timestamp_column": "fetch_time_utc"
+    },
+    {
+      "freshness_minutes": -41.24,
+      "freshness_mode": "realtime",
+      "freshness_status": "future",
+      "latest_timestamp": "2026-03-21T17:55:00Z",
+      "missing_columns": [],
+      "present": true,
+      "required_columns": [
+        "air_temp_f",
+        "temp_delta_vs_kmia",
+        "timestamp_utc"
+      ],
+      "row_count": 18139,
+      "table": "nearby_observations",
+      "timestamp_column": "timestamp_utc"
+    },
+    {
+      "freshness_minutes": 3.76,
+      "freshness_mode": "realtime",
+      "freshness_status": "fresh",
+      "latest_timestamp": "2026-03-21T17:10:00+00:00",
+      "missing_columns": [],
+      "present": true,
+      "required_columns": [
+        "dew_point_f",
+        "pressure_hpa",
+        "sky_cover_pct",
+        "source",
+        "station",
+        "temperature_f",
+        "timestamp_utc"
+      ],
+      "row_count": 3656,
+      "table": "observations",
+      "timestamp_column": "timestamp_utc"
+    }
+  ],
+  "total_required_tables": 11
+}

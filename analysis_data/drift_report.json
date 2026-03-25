@@ -1,0 +1,51 @@
+{
+  "report_date": "2026-03-23",
+  "station": "KMIA",
+  "n_alerts": 5,
+  "recalibration_recommended": true,
+  "alerts": [
+    {
+      "feature": "forecast_error_high",
+      "psi": 0.8345,
+      "severity": "severe",
+      "reference_mean": -3.625,
+      "recent_mean": -5.444,
+      "shift": -1.819
+    },
+    {
+      "feature": "forecast_error_low",
+      "psi": 0.6256,
+      "severity": "severe",
+      "reference_mean": 0.756,
+      "recent_mean": 3.571,
+      "shift": 2.816
+    },
+    {
+      "feature": "cape",
+      "psi": 3.5721,
+      "severity": "severe",
+      "reference_mean": 1864.985,
+      "recent_mean": 257.279,
+      "shift": -1607.706
+    },
+    {
+      "feature": "precipitable_water_mm",
+      "psi": 1.5677,
+      "severity": "severe",
+      "reference_mean": 39.571,
+      "recent_mean": 28.627,
+      "shift": -10.944
+    },
+    {
+      "feature": "observed_temperature",
+      "psi": 1.3218,
+      "severity": "severe",
+      "reference_mean": 75.167,
+      "recent_mean": 69.702,
+      "shift": -5.465
+    }
+  ],
+  "notes": [
+    "5 severe drift alerts \u2014 EMOS recalibration recommended"
+  ]
+}

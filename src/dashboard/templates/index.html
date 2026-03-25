@@ -1,0 +1,1340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>DS3M // KMIA Live Scanner</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Animated background grid -->
+    <div class="bg-grid"></div>
+
+    <header>
+        <div class="header-left">
+            <div class="logo">
+                <span class="logo-icon">&#9670;</span>
+                <span class="logo-text">DS3M</span>
+                <span class="logo-divider">//</span>
+                <span class="logo-station">KMIA</span>
+            </div>
+            <div class="header-badges">
+                <span class="badge badge-model">GraphMamba 8L</span>
+                <span class="badge badge-particles">1000 particles</span>
+                <span class="badge badge-stations">35 stations</span>
+            </div>
+        </div>
+        <div class="header-right">
+            <div id="connection-status" class="conn-indicator disconnected">
+                <span class="conn-dot"></span>
+                <span class="conn-text">OFFLINE</span>
+            </div>
+            <div class="header-time">
+                <span id="utc-time" class="time-utc">--:--:-- Z</span>
+                <span id="local-time" class="time-local">--:--:-- EST</span>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <!-- ════ Row 1: Hero Stats ════ -->
+        <section class="hero-row">
+            <div class="hero-card temp-card">
+                <div class="hero-label">CURRENT TEMP</div>
+                <div class="hero-value" id="current-temp">
+                    <span class="hero-number">--</span>
+                    <span class="hero-unit">°F</span>
+                </div>
+                <div class="hero-sub">
+                    <span class="sparkline-container"><canvas id="temp-sparkline" width="120" height="30"></canvas></span>
+                </div>
+            </div>
+
+            <div class="hero-card high-card">
+                <div class="hero-label">RUNNING HIGH</div>
+                <div class="hero-value" id="running-high">
+                    <span class="hero-number">--</span>
+                    <span class="hero-unit">°F</span>
+                </div>
+                <div class="hero-sub">
+                    <span class="mini-label">Projected</span>
+                    <span class="projected-value" id="projected-high">--°F</span>
+                </div>
+            </div>
+
+            <div class="hero-card low-card">
+                <div class="hero-label">RUNNING LOW</div>
+                <div class="hero-value" id="running-low">
+                    <span class="hero-number">--</span>
+                    <span class="hero-unit">°F</span>
+                </div>
+                <div class="hero-sub">
+                    <span class="mini-label">Projected</span>
+                    <span class="projected-value" id="projected-low">--°F</span>
+                </div>
+            </div>
+
+            <div class="hero-card regime-card" id="regime-card">
+                <div class="hero-label">ACTIVE REGIME</div>
+                <div class="regime-display">
+                    <div class="regime-glow" id="regime-glow"></div>
+                    <span class="regime-name-big" id="regime-name">WAITING</span>
+                    <span class="regime-conf" id="regime-confidence">--%</span>
+                </div>
+                <div id="regime-discovery" class="discovery-pulse hidden">
+                    NEW REGIME DETECTED
+                </div>
+            </div>
+
+            <div class="hero-card wind-card">
+                <div class="hero-label">WIND</div>
+                <div class="wind-display">
+                    <canvas id="wind-compass" width="80" height="80"></canvas>
+                    <div class="wind-text">
+                        <span class="wind-speed" id="wind-speed">-- kt</span>
+                        <span class="wind-dir" id="wind-dir">---°</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="hero-card ess-card">
+                <div class="hero-label">FILTER HEALTH</div>
+                <div class="ess-ring-container">
+                    <svg class="ess-ring" viewBox="0 0 80 80">
+                        <circle class="ess-ring-bg" cx="40" cy="40" r="34" />
+                        <circle class="ess-ring-fill" id="ess-ring" cx="40" cy="40" r="34" />
+                    </svg>
+                    <span class="ess-number" id="ess-value">--</span>
+                </div>
+                <div class="hero-sub">
+                    <span class="mini-label">ESS / 1000</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- ════ Row 2: Regime Probabilities ════ -->
+        <section class="regime-row">
+            <div class="panel glass-panel">
+                <h2><span class="panel-icon">&#9632;</span> Regime Posterior</h2>
+                <div id="regime-bars" class="regime-bars-container">
+                    <div class="regime-bar-row">
+                        <span class="rbar-label">Continental</span>
+                        <div class="rbar-track"><div class="rbar-fill" data-regime="continental" style="width:20%"></div></div>
+                        <span class="rbar-pct">20%</span>
+                    </div>
+                    <div class="regime-bar-row">
+                        <span class="rbar-label">Sea Breeze</span>
+                        <div class="rbar-track"><div class="rbar-fill" data-regime="sea_breeze" style="width:15%"></div></div>
+                        <span class="rbar-pct">15%</span>
+                    </div>
+                    <div class="regime-bar-row">
+                        <span class="rbar-label">Frontal</span>
+                        <div class="rbar-track"><div class="rbar-fill" data-regime="frontal" style="width:5%"></div></div>
+                        <span class="rbar-pct">5%</span>
+                    </div>
+                    <div class="regime-bar-row">
+                        <span class="rbar-label">Tropical</span>
+                        <div class="rbar-track"><div class="rbar-fill" data-regime="tropical" style="width:10%"></div></div>
+                        <span class="rbar-pct">10%</span>
+                    </div>
+                    <div class="regime-bar-row">
+                        <span class="rbar-label">Nocturnal</span>
+                        <div class="rbar-track"><div class="rbar-fill" data-regime="nocturnal" style="width:50%"></div></div>
+                        <span class="rbar-pct">50%</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel glass-panel live-data-panel">
+                <h2><span class="panel-icon">&#9679;</span> Live Observations</h2>
+                <div class="live-grid">
+                    <div class="live-item">
+                        <span class="live-label">Dewpoint</span>
+                        <span class="live-value" id="dewpoint">--°F</span>
+                    </div>
+                    <div class="live-item">
+                        <span class="live-label">Pressure</span>
+                        <span class="live-value" id="pressure">-- hPa</span>
+                    </div>
+                    <div class="live-item">
+                        <span class="live-label">Humidity</span>
+                        <span class="live-value" id="humidity">--%</span>
+                    </div>
+                    <div class="live-item">
+                        <span class="live-label">Visibility</span>
+                        <span class="live-value" id="visibility">-- mi</span>
+                    </div>
+                    <div class="live-item">
+                        <span class="live-label">Cloud Cover</span>
+                        <span class="live-value" id="cloud-cover">--%</span>
+                    </div>
+                    <div class="live-item">
+                        <span class="live-label">CAPE</span>
+                        <span class="live-value" id="cape">-- J/kg</span>
+                    </div>
+                    <div class="live-item">
+                        <span class="live-label">SST</span>
+                        <span class="live-value" id="sst">--°F</span>
+                    </div>
+                    <div class="live-item">
+                        <span class="live-label">Source</span>
+                        <span class="live-value small" id="obs-source">--</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel glass-panel">
+                <h2><span class="panel-icon">&#9650;</span> Innovation Monitor</h2>
+                <div class="innovation-grid">
+                    <div class="innov-item">
+                        <span class="innov-label">Regime Change Signal</span>
+                        <span class="innov-indicator" id="regime-change-signal">STABLE</span>
+                    </div>
+                    <div class="innov-item">
+                        <span class="innov-label">KF Innovation</span>
+                        <span class="innov-value" id="kf-innovation">0.00</span>
+                    </div>
+                    <div class="innov-item">
+                        <span class="innov-label">Variance Ratio</span>
+                        <span class="innov-value" id="var-ratio">1.00</span>
+                    </div>
+                    <div class="innov-item">
+                        <span class="innov-label">Cycle</span>
+                        <span class="innov-value" id="cycle-number">0</span>
+                    </div>
+                    <div class="innov-item">
+                        <span class="innov-label">Cycle Time</span>
+                        <span class="innov-value" id="cycle-time">--ms</span>
+                    </div>
+                    <div class="innov-item">
+                        <span class="innov-label">Lead Time</span>
+                        <span class="innov-value" id="lead-time">--h</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ════ Row 3: Bracket Market Table ════ -->
+        <section class="bracket-row">
+            <div class="panel glass-panel full-width">
+                <h2><span class="panel-icon">&#9644;</span> Bracket Markets — KMIA HIGH &amp; LOW</h2>
+                <div class="bracket-table-wrap">
+                    <table id="bracket-table">
+                        <thead>
+                            <tr>
+                                <th class="th-left">Bracket</th>
+                                <th>Model P</th>
+                                <th>Conformal P</th>
+                                <th>Mkt YES</th>
+                                <th>Mkt NO</th>
+                                <th>Spread</th>
+                                <th>Edge</th>
+                                <th>Depth</th>
+                                <th>Signal</th>
+                            </tr>
+                        </thead>
+                        <tbody id="bracket-tbody">
+                            <tr class="bracket-row-item">
+                                <td class="bracket-label">&lt;60°F</td>
+                                <td class="model-p">0.1%</td>
+                                <td class="conformal-p">0.2%</td>
+                                <td>2¢</td>
+                                <td>97¢</td>
+                                <td class="spread">5¢</td>
+                                <td class="edge neutral">--</td>
+                                <td class="depth">$12</td>
+                                <td><span class="no-signal">--</span></td>
+                            </tr>
+                            <tr class="bracket-row-item">
+                                <td class="bracket-label">60-65°F</td>
+                                <td class="model-p">0.5%</td>
+                                <td class="conformal-p">0.8%</td>
+                                <td>3¢</td>
+                                <td>96¢</td>
+                                <td class="spread">4¢</td>
+                                <td class="edge neutral">--</td>
+                                <td class="depth">$18</td>
+                                <td><span class="no-signal">--</span></td>
+                            </tr>
+                            <!-- More rows filled by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ════ Row 4: Trades ════ -->
+        <section class="trades-row">
+            <div class="panel glass-panel">
+                <h2><span class="panel-icon">&#9654;</span> Open Positions</h2>
+                <div id="open-trades-list" class="trade-list">
+                    <div class="empty-state">
+                        <span class="empty-icon">&#9711;</span>
+                        <span>No open trades</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel glass-panel">
+                <h2><span class="panel-icon">&#9632;</span> Trade History</h2>
+                <div class="pnl-bar">
+                    <div class="pnl-item">
+                        <span class="pnl-label">30d P&L</span>
+                        <span class="pnl-value" id="pnl-30d">$0.00</span>
+                    </div>
+                    <div class="pnl-item">
+                        <span class="pnl-label">Win Rate</span>
+                        <span class="pnl-value" id="win-rate">--%</span>
+                    </div>
+                    <div class="pnl-item">
+                        <span class="pnl-label">Trades</span>
+                        <span class="pnl-value" id="trade-count">0</span>
+                    </div>
+                    <div class="pnl-item">
+                        <span class="pnl-label">Avg Edge</span>
+                        <span class="pnl-value" id="avg-edge">--¢</span>
+                    </div>
+                </div>
+                <div id="trade-history-list" class="trade-list">
+                    <div class="empty-state">
+                        <span class="empty-icon">&#9711;</span>
+                        <span>No settled trades</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ════ Row 5: Graph Spatial View ════ -->
+        <section class="spatial-row">
+            <div class="panel glass-panel full-width">
+                <h2><span class="panel-icon">&#9673;</span> Spatial Network — 35 Station Graph</h2>
+                <div class="spatial-display">
+                    <canvas id="station-map"></canvas>
+                    <div class="spatial-legend">
+                        <div class="legend-item"><span class="legend-dot" style="background:#58a6ff"></span> ASOS Station</div>
+                        <div class="legend-item"><span class="legend-dot" style="background:#39d0d8;transform:rotate(45deg);border-radius:1px;width:8px;height:8px"></span> Buoy</div>
+                        <div class="legend-item"><span class="legend-dot" style="background:#3fb950;clip-path:polygon(50% 0%,100% 100%,0% 100%)"></span> FAWN</div>
+                        <div class="legend-item" style="margin-left:16px"><span class="legend-dot" style="background:#3fb950"></span> Continental</div>
+                        <div class="legend-item"><span class="legend-dot" style="background:#58a6ff"></span> Sea Breeze</div>
+                        <div class="legend-item"><span class="legend-dot" style="background:#f85149"></span> Frontal</div>
+                        <div class="legend-item"><span class="legend-dot" style="background:#f0883e"></span> Tropical</div>
+                        <div class="legend-item"><span class="legend-dot" style="background:#bc8cff"></span> Nocturnal</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <span>DS3M v2 // GraphMamba // 12.6M params // 52 features // 35 stations</span>
+        <span id="footer-cycle">Cycle --</span>
+    </footer>
+
+    <script>
+    // ── Regime colors ──
+    const REGIME_COLORS = {
+        continental: '#3fb950',
+        sea_breeze: '#58a6ff',
+        frontal: '#f85149',
+        tropical: '#f0883e',
+        nocturnal: '#bc8cff',
+    };
+
+    // ── Clock ──
+    function updateClock() {
+        const now = new Date();
+        const utc = now.toISOString().slice(11, 19) + ' Z';
+        const est = now.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour12: false });
+        document.getElementById('utc-time').textContent = utc;
+        document.getElementById('local-time').textContent = est + ' EST';
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    // ── Temp sparkline buffer ──
+    const tempHistory = [];
+
+    function drawSparkline(canvasId, data, color = '#58a6ff') {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas || data.length < 2) return;
+        const ctx = canvas.getContext('2d');
+        const w = canvas.width, h = canvas.height;
+        ctx.clearRect(0, 0, w, h);
+
+        const min = Math.min(...data) - 1;
+        const max = Math.max(...data) + 1;
+        const range = max - min || 1;
+
+        ctx.beginPath();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.5;
+        data.forEach((v, i) => {
+            const x = (i / (data.length - 1)) * w;
+            const y = h - ((v - min) / range) * h;
+            i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+
+        // Gradient fill
+        const grad = ctx.createLinearGradient(0, 0, 0, h);
+        grad.addColorStop(0, color + '40');
+        grad.addColorStop(1, color + '00');
+        ctx.lineTo(w, h);
+        ctx.lineTo(0, h);
+        ctx.closePath();
+        ctx.fillStyle = grad;
+        ctx.fill();
+    }
+
+    // ── Wind compass ──
+    function drawCompass(dir, speed) {
+        const canvas = document.getElementById('wind-compass');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const cx = 40, cy = 40, r = 32;
+        ctx.clearRect(0, 0, 80, 80);
+
+        // Ring
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.strokeStyle = '#30363d';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Cardinal points
+        ctx.fillStyle = '#6e7681';
+        ctx.font = '9px Inter';
+        ctx.textAlign = 'center';
+        ctx.fillText('N', cx, cy - r + 10);
+        ctx.fillText('S', cx, cy + r - 4);
+        ctx.fillText('E', cx + r - 6, cy + 3);
+        ctx.fillText('W', cx - r + 6, cy + 3);
+
+        if (dir == null || isNaN(dir)) return;
+
+        // Arrow
+        const rad = (dir - 90) * Math.PI / 180;
+        const ax = cx + Math.cos(rad) * (r - 8);
+        const ay = cy + Math.sin(rad) * (r - 8);
+
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(ax, ay);
+        ctx.strokeStyle = '#58a6ff';
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+
+        // Arrowhead
+        ctx.beginPath();
+        ctx.arc(ax, ay, 3, 0, Math.PI * 2);
+        ctx.fillStyle = '#58a6ff';
+        ctx.fill();
+    }
+
+    // ── ESS Ring ──
+    function updateESSRing(ess, total) {
+        const ring = document.getElementById('ess-ring');
+        if (!ring) return;
+        const pct = Math.min(1, ess / total);
+        const circumference = 2 * Math.PI * 34;
+        ring.style.strokeDasharray = circumference;
+        ring.style.strokeDashoffset = circumference * (1 - pct);
+        ring.style.stroke = pct > 0.5 ? '#3fb950' : pct > 0.25 ? '#d29922' : '#f85149';
+    }
+
+    // ── SSE Connection ──
+    const evtSource = new EventSource('/stream');
+    const connEl = document.getElementById('connection-status');
+
+    evtSource.onopen = () => {
+        connEl.className = 'conn-indicator connected';
+        connEl.querySelector('.conn-text').textContent = 'LIVE';
+    };
+
+    evtSource.onerror = () => {
+        connEl.className = 'conn-indicator disconnected';
+        connEl.querySelector('.conn-text').textContent = 'OFFLINE';
+    };
+
+    evtSource.addEventListener('update', (e) => {
+        const data = JSON.parse(e.data);
+        updateDashboard(data);
+    });
+
+    evtSource.addEventListener('heartbeat', () => {});
+
+    // ── Main update function ──
+    function updateDashboard(data) {
+        // Weather
+        if (data.weather) {
+            const w = data.weather;
+            animateNumber('current-temp', w.temp_f, '°F');
+            animateNumber('running-high', w.running_high, '°F');
+            animateNumber('running-low', w.running_low, '°F');
+            document.getElementById('dewpoint').textContent = (w.dewpoint_f?.toFixed(1) || '--') + '°F';
+            document.getElementById('pressure').textContent = (w.pressure_hpa?.toFixed(1) || '--') + ' hPa';
+            document.getElementById('humidity').textContent = (w.rel_humidity?.toFixed(0) || '--') + '%';
+            document.getElementById('visibility').textContent = (w.visibility_mi?.toFixed(1) || '--') + ' mi';
+            document.getElementById('cloud-cover').textContent = ((w.cloud_cover || 0) * 100).toFixed(0) + '%';
+            document.getElementById('obs-source').textContent = w.source || '--';
+
+            if (w.wind_dir != null) {
+                document.getElementById('wind-speed').textContent = (w.wind_speed?.toFixed(0) || '--') + ' kt';
+                document.getElementById('wind-dir').textContent = w.wind_dir?.toFixed(0) + '°';
+                drawCompass(w.wind_dir, w.wind_speed);
+            }
+
+            if (w.temp_f != null) {
+                tempHistory.push(w.temp_f);
+                if (tempHistory.length > 60) tempHistory.shift();
+                drawSparkline('temp-sparkline', tempHistory);
+            }
+        }
+
+        // Model
+        if (data.model) {
+            const m = data.model;
+            const projHigh = (data.weather?.running_high || 0) + (m.mu_high || 0);
+            document.getElementById('projected-high').textContent = projHigh.toFixed(1) + '°F';
+            const projLow = (data.weather?.running_low || 0) - Math.abs(m.mu_low || 0);
+            document.getElementById('projected-low').textContent = projLow.toFixed(1) + '°F';
+            document.getElementById('ess-value').textContent = m.ess?.toFixed(0) || '--';
+            document.getElementById('cycle-time').textContent = (data.cycle_ms?.toFixed(0) || '--') + 'ms';
+            document.getElementById('cycle-number').textContent = data.cycle || 0;
+            document.getElementById('footer-cycle').textContent = 'Cycle ' + (data.cycle || 0);
+            document.getElementById('lead-time').textContent = (m.lead_time_hours?.toFixed(1) || '--') + 'h';
+            updateESSRing(m.ess || 0, m.n_particles || 1000);
+        }
+
+        // Atmosphere
+        if (data.atmosphere) {
+            document.getElementById('cape').textContent = (data.atmosphere.cape?.toFixed(0) || '--') + ' J/kg';
+            document.getElementById('sst').textContent = (data.atmosphere.sst?.toFixed(1) || '--') + '°F';
+        }
+
+        // Station weather data for spatial map (ASOS + buoys + FAWN)
+        if (data.station_wx) {
+            updateStationWx(data.station_wx);
+        }
+
+        // Regime
+        if (data.regime) {
+            const r = data.regime;
+            const regimeName = r.active_regime || 'UNKNOWN';
+            const color = REGIME_COLORS[regimeName.toLowerCase()] || '#999';
+
+            document.getElementById('regime-name').textContent = regimeName.toUpperCase();
+            document.getElementById('regime-confidence').textContent =
+                ((r.confidence || 0) * 100).toFixed(0) + '%';
+
+            const card = document.getElementById('regime-card');
+            card.style.borderColor = color;
+            const glow = document.getElementById('regime-glow');
+            glow.style.background = `radial-gradient(circle, ${color}30 0%, transparent 70%)`;
+
+            // Regime bars
+            if (r.regime_probs) {
+                const barsDiv = document.getElementById('regime-bars');
+                barsDiv.innerHTML = '';
+                for (const [name, prob] of Object.entries(r.regime_probs)) {
+                    const barColor = REGIME_COLORS[name.toLowerCase()] || '#58a6ff';
+                    barsDiv.innerHTML += `
+                        <div class="regime-bar-row">
+                            <span class="rbar-label">${name}</span>
+                            <div class="rbar-track">
+                                <div class="rbar-fill" style="width:${(prob*100).toFixed(0)}%;background:${barColor}"></div>
+                            </div>
+                            <span class="rbar-pct">${(prob*100).toFixed(0)}%</span>
+                        </div>`;
+                }
+            }
+
+            document.getElementById('regime-discovery').classList.toggle('hidden', !r.is_new_discovery);
+        }
+
+        // Innovation monitor
+        if (data.innovation) {
+            const signal = document.getElementById('regime-change-signal');
+            if (data.innovation.regime_change_signal) {
+                signal.textContent = 'CHANGE DETECTED';
+                signal.className = 'innov-indicator alert';
+            } else {
+                signal.textContent = 'STABLE';
+                signal.className = 'innov-indicator stable';
+            }
+            document.getElementById('kf-innovation').textContent =
+                data.innovation.mean_innovation?.toFixed(3) || '0.000';
+            document.getElementById('var-ratio').textContent =
+                data.innovation.variance_ratio?.toFixed(2) || '1.00';
+        }
+
+        // Brackets
+        if (data.brackets) {
+            const tbody = document.getElementById('bracket-tbody');
+            tbody.innerHTML = '';
+            for (const b of data.brackets) {
+                const edgeCents = (b.edge * 100).toFixed(1);
+                const edgeClass = b.edge > 0.02 ? 'positive' : b.edge < -0.02 ? 'negative' : 'neutral';
+                const heatClass = b.model_prob > 0.3 ? 'hot' : b.model_prob > 0.15 ? 'warm' : 'cold';
+
+                const signal = (data.signals || []).find(s => s.bracket === b.label);
+                const signalHtml = signal
+                    ? `<span class="signal-badge ${signal.side === 'BUY_YES' ? 'sig-yes' : 'sig-no'}">${signal.side.replace('BUY_', '')} ${signal.order_type}</span>`
+                    : '<span class="no-signal">--</span>';
+
+                tbody.innerHTML += `
+                    <tr class="bracket-row-item ${heatClass}">
+                        <td class="bracket-label">${b.label}</td>
+                        <td class="model-p">${(b.model_prob * 100).toFixed(1)}%</td>
+                        <td class="conformal-p">${(b.conformal_prob * 100).toFixed(1)}%</td>
+                        <td>${(b.yes_price * 100).toFixed(0)}¢</td>
+                        <td>${(b.no_price * 100).toFixed(0)}¢</td>
+                        <td class="spread">${((b.yes_price + b.no_price - 1) * 100).toFixed(0)}¢</td>
+                        <td class="edge ${edgeClass}">${edgeCents}¢</td>
+                        <td class="depth">$${b.depth?.toFixed(0) || '0'}</td>
+                        <td>${signalHtml}</td>
+                    </tr>`;
+            }
+        }
+    }
+
+    // ── Number animation ──
+    function animateNumber(containerId, value, suffix) {
+        if (value == null) return;
+        const el = document.getElementById(containerId);
+        if (!el) return;
+        const numEl = el.querySelector('.hero-number');
+        if (numEl) {
+            numEl.textContent = value.toFixed(1);
+        } else {
+            el.textContent = value.toFixed(1) + (suffix || '');
+        }
+    }
+
+    // ── Load trades ──
+    async function loadTrades() {
+        try {
+            const open = await fetch('/api/trades/open').then(r => r.json());
+            const openDiv = document.getElementById('open-trades-list');
+            if (open.length > 0) {
+                openDiv.innerHTML = open.map(t =>
+                    `<div class="trade-item">
+                        <span class="trade-ticker">${t.ticker}</span>
+                        <span class="trade-side ${t.side}">${t.side.replace('BUY_', '')}</span>
+                        <span class="trade-entry">${t.entry_price_cents}¢</span>
+                        <span class="trade-prob">${((t.entry_probability || 0) * 100).toFixed(0)}%</span>
+                    </div>`
+                ).join('');
+            }
+
+            const history = await fetch('/api/trades/history?days=30').then(r => r.json());
+            const histDiv = document.getElementById('trade-history-list');
+            if (history.length > 0) {
+                let totalPnl = 0, wins = 0;
+                histDiv.innerHTML = history.slice(0, 15).map(t => {
+                    totalPnl += t.pnl_cents || 0;
+                    if ((t.pnl_cents || 0) > 0) wins++;
+                    const pnlClass = (t.pnl_cents || 0) >= 0 ? 'positive' : 'negative';
+                    return `<div class="trade-item">
+                        <span class="trade-ticker">${t.ticker}</span>
+                        <span class="trade-pnl ${pnlClass}">${(t.pnl_cents/100).toFixed(2)}</span>
+                        <span class="trade-date">${t.settled_at?.slice(5, 10) || ''}</span>
+                    </div>`;
+                }).join('');
+                document.getElementById('pnl-30d').textContent = '$' + (totalPnl / 100).toFixed(2);
+                document.getElementById('pnl-30d').className = 'pnl-value ' + (totalPnl >= 0 ? 'positive' : 'negative');
+                document.getElementById('win-rate').textContent =
+                    (wins / history.length * 100).toFixed(0) + '%';
+                document.getElementById('trade-count').textContent = history.length;
+            }
+        } catch (e) {}
+    }
+    loadTrades();
+    setInterval(loadTrades, 60000);
+
+    // ── Initialize compass ──
+    drawCompass(null, 0);
+    updateESSRing(0, 1000);
+
+    // ── Station Spatial Network Map ──
+    const STATIONS = {
+        KMIA: { lat: 25.80, lon: -80.29, target: true, city: 'Miami' },
+        KOPF: { lat: 25.91, lon: -80.28, city: 'Opa Locka' },
+        KTMB: { lat: 25.65, lon: -80.43, city: 'Kendall' },
+        KHWO: { lat: 26.00, lon: -80.24, city: 'Hollywood' },
+        KFLL: { lat: 26.07, lon: -80.15, city: 'Ft Lauderdale' },
+        KHST: { lat: 25.49, lon: -80.38, city: 'Homestead' },
+        KFXE: { lat: 26.20, lon: -80.17, city: 'Ft Laud Exec' },
+        KPMP: { lat: 26.25, lon: -80.11, city: 'Pompano' },
+        KBCT: { lat: 26.38, lon: -80.11, city: 'Boca Raton' },
+        KPBI: { lat: 26.68, lon: -80.10, city: 'W Palm Beach' },
+        KX51: { lat: 26.69, lon: -80.86, city: 'Homestead Gen' },
+        KIMM: { lat: 26.43, lon: -81.40, city: 'Immokalee' },
+        KPHK: { lat: 26.79, lon: -80.69, city: 'Pahokee' },
+        KOBE: { lat: 27.26, lon: -80.85, city: 'Okeechobee' },
+        KSUA: { lat: 27.18, lon: -80.22, city: 'Stuart' },
+        KMTH: { lat: 24.73, lon: -81.05, city: 'Marathon' },
+        KNQX: { lat: 24.58, lon: -81.69, city: 'Key West NAS' },
+        KEYW: { lat: 24.56, lon: -81.76, city: 'Key West' },
+        KAPF: { lat: 26.15, lon: -81.78, city: 'Naples' },
+        KRSW: { lat: 26.54, lon: -81.76, city: 'Ft Myers Intl' },
+        KFMY: { lat: 26.59, lon: -81.86, city: 'Ft Myers' },
+        KPGD: { lat: 26.92, lon: -81.99, city: 'Punta Gorda' },
+        KFPR: { lat: 27.50, lon: -80.37, city: 'Ft Pierce' },
+        KSEF: { lat: 27.46, lon: -81.34, city: 'Sebring' },
+        KVRB: { lat: 27.66, lon: -80.42, city: 'Vero Beach' },
+        KMLB: { lat: 28.10, lon: -80.64, city: 'Melbourne' },
+        KBOW: { lat: 27.94, lon: -81.78, city: 'Bartow' },
+        KSRQ: { lat: 27.40, lon: -82.55, city: 'Sarasota' },
+        KLAL: { lat: 27.99, lon: -82.02, city: 'Lakeland' },
+        KMCO: { lat: 28.43, lon: -81.31, city: 'Orlando' },
+        KSPG: { lat: 27.77, lon: -82.63, city: 'St Pete' },
+        KORL: { lat: 28.55, lon: -81.33, city: 'Orlando Exec' },
+        KTPA: { lat: 27.98, lon: -82.53, city: 'Tampa' },
+        KPIE: { lat: 27.91, lon: -82.69, city: 'Clearwater' },
+        KSFB: { lat: 28.78, lon: -81.24, city: 'Sanford' },
+    };
+
+    // Per-station color overrides (set by SSE regime data)
+    const stationColors = {};
+
+    // Haversine distance in km
+    function haversineKm(lat1, lon1, lat2, lon2) {
+        const R = 6371;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) ** 2 +
+                  Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                  Math.sin(dLon / 2) ** 2;
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    // Pre-compute edges (pairs within 200km)
+    const stationKeys = Object.keys(STATIONS);
+    const edges = [];
+    for (let i = 0; i < stationKeys.length; i++) {
+        for (let j = i + 1; j < stationKeys.length; j++) {
+            const a = STATIONS[stationKeys[i]], b = STATIONS[stationKeys[j]];
+            const d = haversineKm(a.lat, a.lon, b.lat, b.lon);
+            if (d <= 200) edges.push({ i, j, dist: d });
+        }
+    }
+
+    // Map lat/lon to canvas pixel coords with Mercator-like aspect ratio correction
+    const _allLats = stationKeys.map(k => STATIONS[k].lat);
+    const _allLons = stationKeys.map(k => STATIONS[k].lon);
+    // Expand bounds to show most of Florida peninsula
+    const _minLat = 24.30;   // south of Key West
+    const _maxLat = 30.50;   // Jacksonville area
+    const _minLon = -83.00;  // west of Tampa Bay
+    const _maxLon = -79.70;  // east of Atlantic coast
+    const _midLat = (_minLat + _maxLat) / 2;
+    const _cosLat = Math.cos(_midLat * Math.PI / 180);  // ~0.89 at 27°N
+
+    function geoToCanvas(lat, lon, w, h, pad) {
+        // Apply cosine correction so 1° lon = cos(lat) × 1° lat visually
+        const latRange = _maxLat - _minLat;
+        const lonRange = (_maxLon - _minLon) * _cosLat;
+
+        // Fit to canvas maintaining aspect ratio
+        const scaleX = (w - 2 * pad) / lonRange;
+        const scaleY = (h - 2 * pad) / latRange;
+        const scale = Math.min(scaleX, scaleY);
+
+        const drawW = lonRange * scale;
+        const drawH = latRange * scale;
+        const offsetX = pad + (w - 2 * pad - drawW) / 2;
+        const offsetY = pad + (h - 2 * pad - drawH) / 2;
+
+        const x = offsetX + ((lon - _minLon) * _cosLat) * scale;
+        const y = offsetY + (_maxLat - lat) * scale;
+        return [x, y];
+    }
+
+    // Florida Atlantic coastline (south to north)
+    const FL_COAST = [
+        { lat: 24.55, lon: -81.80 },  // Key West
+        { lat: 24.65, lon: -81.40 },
+        { lat: 24.70, lon: -81.10 },  // Marathon
+        { lat: 24.85, lon: -80.75 },
+        { lat: 25.10, lon: -80.45 },  // Key Largo
+        { lat: 25.35, lon: -80.22 },
+        { lat: 25.45, lon: -80.20 },  // Homestead coast
+        { lat: 25.65, lon: -80.15 },
+        { lat: 25.77, lon: -80.13 },  // Miami Beach
+        { lat: 26.10, lon: -80.10 },  // Ft Lauderdale coast
+        { lat: 26.35, lon: -80.07 },  // Boca
+        { lat: 26.70, lon: -80.03 },  // Palm Beach
+        { lat: 27.00, lon: -80.08 },
+        { lat: 27.20, lon: -80.15 },  // Stuart
+        { lat: 27.50, lon: -80.30 },  // Ft Pierce
+        { lat: 27.85, lon: -80.45 },  // Vero/Melbourne
+        { lat: 28.25, lon: -80.55 },
+        { lat: 28.40, lon: -80.60 },  // Cape Canaveral
+        { lat: 28.63, lon: -80.58 },  // Kennedy Space Center
+        { lat: 29.00, lon: -80.90 },  // Daytona area
+        { lat: 29.40, lon: -81.10 },  // St Augustine area
+        { lat: 29.90, lon: -81.30 },  // Flagler
+        { lat: 30.30, lon: -81.40 },  // Jacksonville
+    ];
+
+    // Florida Gulf coastline (south to north)
+    const FL_GULF = [
+        { lat: 25.10, lon: -81.10 },  // SW keys
+        { lat: 25.50, lon: -81.30 },
+        { lat: 25.80, lon: -81.50 },  // Everglades
+        { lat: 26.00, lon: -81.70 },
+        { lat: 26.20, lon: -81.85 },  // Naples
+        { lat: 26.45, lon: -81.95 },
+        { lat: 26.55, lon: -82.00 },  // Ft Myers coast
+        { lat: 26.80, lon: -82.10 },
+        { lat: 27.00, lon: -82.20 },  // Charlotte Harbor
+        { lat: 27.20, lon: -82.45 },
+        { lat: 27.40, lon: -82.60 },  // Sarasota
+        { lat: 27.60, lon: -82.70 },
+        { lat: 27.80, lon: -82.75 },  // St Pete
+        { lat: 27.85, lon: -82.55 },  // Tampa Bay entrance
+        { lat: 27.95, lon: -82.45 },  // Tampa Bay inner
+        { lat: 28.05, lon: -82.55 },  // Tampa Bay north
+        { lat: 28.15, lon: -82.75 },  // Clearwater
+        { lat: 28.50, lon: -82.70 },
+        { lat: 28.80, lon: -82.65 },  // Crystal River
+        { lat: 29.10, lon: -82.80 },  // Cedar Key
+        { lat: 29.50, lon: -83.00 },
+        { lat: 29.90, lon: -83.50 },  // Big Bend
+        { lat: 30.30, lon: -83.70 },  // Tallahassee area
+    ];
+
+    // Lake Okeechobee rough outline
+    const OKEECHOBEE = [
+        { lat: 26.70, lon: -80.95 },
+        { lat: 26.85, lon: -80.80 },
+        { lat: 27.00, lon: -80.80 },
+        { lat: 27.10, lon: -80.90 },
+        { lat: 27.10, lon: -81.05 },
+        { lat: 27.00, lon: -81.15 },
+        { lat: 26.85, lon: -81.15 },
+        { lat: 26.70, lon: -81.05 },
+    ];
+
+    // ── HiDPI canvas setup ──
+    let mapZoom = 1.0;
+    let mapPanX = 0, mapPanY = 0;
+    let _mapDragging = false, _mapDragStartX = 0, _mapDragStartY = 0;
+    let _mapAnimFrame = 0;
+    const stationWxData = {};
+
+    const mapCanvas = document.getElementById('station-map');
+    let _dpr = 1, _cssW = 800, _cssH = 450;
+
+    function initMapCanvas() {
+        if (!mapCanvas) return;
+        _dpr = window.devicePixelRatio || 1;
+        const rect = mapCanvas.parentElement.getBoundingClientRect();
+        _cssW = rect.width - 24;  // panel padding
+        // Respect CSS height override (mobile sets 300px)
+        const computedH = parseFloat(getComputedStyle(mapCanvas).height);
+        _cssH = computedH > 0 ? computedH : 450;
+        mapCanvas.style.width = _cssW + 'px';
+        mapCanvas.style.height = _cssH + 'px';
+        mapCanvas.width = Math.round(_cssW * _dpr);
+        mapCanvas.height = Math.round(_cssH * _dpr);
+    }
+    initMapCanvas();
+    window.addEventListener('resize', initMapCanvas);
+
+    // County borders (approximate, appear at zoom >= 1.5)
+    const COUNTY_BORDERS = [
+        // Miami-Dade / Broward border (~25.96 lat)
+        { from: { lat: 25.96, lon: -80.12 }, to: { lat: 25.96, lon: -80.87 }, label: 'Miami-Dade | Broward' },
+        // Broward / Palm Beach border (~26.43 lat)
+        { from: { lat: 26.43, lon: -80.06 }, to: { lat: 26.43, lon: -80.90 }, label: 'Broward | Palm Beach' },
+        // Palm Beach / Martin border (~26.97 lat)
+        { from: { lat: 26.97, lon: -80.05 }, to: { lat: 26.97, lon: -80.90 }, label: 'Palm Beach | Martin' },
+        // Collier / Lee border (~26.42 lat on Gulf side)
+        { from: { lat: 26.42, lon: -81.20 }, to: { lat: 26.42, lon: -81.90 }, label: 'Collier | Lee' },
+        // Lee / Charlotte border (~26.77 lat)
+        { from: { lat: 26.77, lon: -81.60 }, to: { lat: 26.77, lon: -82.10 }, label: 'Lee | Charlotte' },
+        // Monroe / Miami-Dade border (~25.50)
+        { from: { lat: 25.50, lon: -80.15 }, to: { lat: 25.50, lon: -80.60 }, label: 'Monroe | Miami-Dade' },
+    ];
+
+    // Cities that appear at different zoom levels
+    const MAP_CITIES = [
+        // Always visible (zoom >= 1.0)
+        { lat: 25.76, lon: -80.19, name: 'Miami', minZoom: 1.0, size: 'large' },
+        { lat: 27.95, lon: -82.46, name: 'Tampa', minZoom: 1.0, size: 'large' },
+        { lat: 28.54, lon: -81.38, name: 'Orlando', minZoom: 1.0, size: 'large' },
+        { lat: 26.64, lon: -80.05, name: 'West Palm Beach', minZoom: 1.0, size: 'medium' },
+        { lat: 24.56, lon: -81.78, name: 'Key West', minZoom: 1.0, size: 'medium' },
+        // Zoom >= 1.3
+        { lat: 26.12, lon: -80.14, name: 'Fort Lauderdale', minZoom: 1.3, size: 'medium' },
+        { lat: 26.14, lon: -81.79, name: 'Naples', minZoom: 1.3, size: 'medium' },
+        { lat: 26.64, lon: -81.87, name: 'Fort Myers', minZoom: 1.3, size: 'medium' },
+        { lat: 27.34, lon: -82.53, name: 'Sarasota', minZoom: 1.3, size: 'medium' },
+        { lat: 28.08, lon: -80.61, name: 'Melbourne', minZoom: 1.3, size: 'medium' },
+        // Zoom >= 1.8
+        { lat: 25.47, lon: -80.48, name: 'Homestead', minZoom: 1.8, size: 'small' },
+        { lat: 26.27, lon: -80.27, name: 'Coral Springs', minZoom: 1.8, size: 'small' },
+        { lat: 26.36, lon: -80.08, name: 'Boca Raton', minZoom: 1.8, size: 'small' },
+        { lat: 25.94, lon: -80.28, name: 'Hialeah', minZoom: 1.8, size: 'small' },
+        { lat: 26.01, lon: -80.15, name: 'Hollywood', minZoom: 1.8, size: 'small' },
+        { lat: 25.69, lon: -80.31, name: 'Kendall', minZoom: 1.8, size: 'small' },
+        { lat: 27.77, lon: -82.64, name: 'St. Petersburg', minZoom: 1.8, size: 'small' },
+        { lat: 28.01, lon: -81.73, name: 'Lakeland', minZoom: 1.8, size: 'small' },
+        { lat: 26.92, lon: -82.05, name: 'Punta Gorda', minZoom: 1.8, size: 'small' },
+        { lat: 27.50, lon: -80.35, name: 'Fort Pierce', minZoom: 1.8, size: 'small' },
+        { lat: 27.64, lon: -80.40, name: 'Vero Beach', minZoom: 1.8, size: 'small' },
+        { lat: 24.71, lon: -81.10, name: 'Marathon', minZoom: 1.8, size: 'small' },
+        // Zoom >= 1.0 — visible at default (north FL)
+        { lat: 30.33, lon: -81.66, name: 'Jacksonville', minZoom: 1.0, size: 'large' },
+        { lat: 29.21, lon: -81.02, name: 'Daytona Beach', minZoom: 1.0, size: 'medium' },
+        { lat: 29.65, lon: -82.32, name: 'Gainesville', minZoom: 1.3, size: 'medium' },
+        { lat: 28.54, lon: -80.67, name: 'Cocoa Beach', minZoom: 1.8, size: 'small' },
+        { lat: 28.06, lon: -82.41, name: 'Brandon', minZoom: 1.8, size: 'small' },
+        { lat: 26.56, lon: -80.08, name: 'Delray Beach', minZoom: 1.8, size: 'small' },
+        { lat: 25.79, lon: -80.13, name: 'Miami Beach', minZoom: 1.8, size: 'small' },
+        { lat: 28.90, lon: -81.26, name: 'Deltona', minZoom: 1.8, size: 'small' },
+        { lat: 27.95, lon: -82.01, name: 'Plant City', minZoom: 2.0, size: 'small' },
+        { lat: 26.43, lon: -80.07, name: 'Boynton Beach', minZoom: 2.0, size: 'small' },
+    ];
+
+    // NDBC Buoys
+    const BUOYS = [
+        { id: 'VAKF1', lat: 25.73, lon: -80.16, name: 'Virginia Key', type: 'buoy' },
+        { id: '41122', lat: 26.01, lon: -80.10, name: 'Hollywood Beach', type: 'buoy' },
+        { id: 'MNBF1', lat: 25.22, lon: -80.38, name: 'Manatee Bay', type: 'buoy' },
+    ];
+
+    // FAWN mesonet stations (soil temp, solar, ag data)
+    const FAWN_STATIONS = [
+        { id: '440', lat: 25.51, lon: -80.50, name: 'Homestead' },
+        { id: '405', lat: 26.75, lon: -80.93, name: 'Clewiston' },
+        { id: '410', lat: 26.65, lon: -80.63, name: 'Belle Glade' },
+        { id: '430', lat: 27.43, lon: -80.35, name: 'Ft. Pierce' },
+        { id: '435', lat: 27.28, lon: -80.48, name: 'St. Lucie West' },
+        { id: '450', lat: 26.47, lon: -81.43, name: 'Immokalee' },
+        { id: '455', lat: 27.08, lon: -80.88, name: 'Okeechobee' },
+        { id: '460', lat: 26.93, lon: -81.30, name: 'Palmdale' },
+        { id: '425', lat: 26.66, lon: -80.30, name: 'Wellington' },
+        { id: '420', lat: 26.08, lon: -80.24, name: 'Ft. Lauderdale' },
+    ];
+
+    function drawStationMap() {
+        if (!mapCanvas) return;
+        const ctx = mapCanvas.getContext('2d');
+        const W = _cssW, H = _cssH;
+        const PAD = 30;
+        const t = performance.now();
+
+        // Scale for HiDPI
+        ctx.setTransform(_dpr, 0, 0, _dpr, 0, 0);
+        ctx.clearRect(0, 0, W, H);
+
+        // Apply zoom and pan
+        ctx.save();
+        ctx.translate(W / 2 + mapPanX, H / 2 + mapPanY);
+        ctx.scale(mapZoom, mapZoom);
+        ctx.translate(-W / 2, -H / 2);
+
+        const invZoom = 1 / mapZoom;
+
+        // Helper
+        function geoPath(points) {
+            return points.map(p => geoToCanvas(p.lat, p.lon, W, H, PAD));
+        }
+
+        // -- Water background --
+        ctx.fillStyle = 'rgba(6, 14, 30, 0.6)';
+        ctx.fillRect(-200, -200, W + 400, H + 400);
+
+        // -- Florida land mass --
+        const atlantic = geoPath(FL_COAST);
+        const gulf = geoPath(FL_GULF);
+
+        ctx.beginPath();
+        ctx.moveTo(atlantic[0][0], atlantic[0][1]);
+        for (const [px, py] of atlantic) ctx.lineTo(px, py);
+        ctx.lineTo(gulf[gulf.length - 1][0], gulf[gulf.length - 1][1]);
+        for (let i = gulf.length - 1; i >= 0; i--) ctx.lineTo(gulf[i][0], gulf[i][1]);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(18, 24, 33, 0.95)';
+        ctx.fill();
+
+        // -- Coastline strokes (brighter) --
+        function drawCoast(points, closed) {
+            if (points.length < 2) return;
+            ctx.beginPath();
+            const [sx, sy] = geoToCanvas(points[0].lat, points[0].lon, W, H, PAD);
+            ctx.moveTo(sx, sy);
+            for (let i = 1; i < points.length; i++) {
+                const [px, py] = geoToCanvas(points[i].lat, points[i].lon, W, H, PAD);
+                ctx.lineTo(px, py);
+            }
+            if (closed) ctx.closePath();
+            ctx.strokeStyle = 'rgba(88, 166, 255, 0.45)';
+            ctx.lineWidth = 1.5 * invZoom;
+            ctx.stroke();
+        }
+        drawCoast(FL_COAST, false);
+        drawCoast(FL_GULF, false);
+
+        // -- Lake Okeechobee --
+        const okee = geoPath(OKEECHOBEE);
+        ctx.beginPath();
+        for (const [px, py] of okee) ctx.lineTo(px, py);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(6, 14, 30, 0.8)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(88, 166, 255, 0.4)';
+        ctx.lineWidth = 1 * invZoom;
+        ctx.stroke();
+
+        const okeeC = geoToCanvas(26.90, -80.97, W, H, PAD);
+        ctx.font = `italic ${8 * invZoom}px Inter`;
+        ctx.fillStyle = 'rgba(88, 166, 255, 0.5)';
+        ctx.textAlign = 'center';
+        ctx.fillText('L. Okeechobee', okeeC[0], okeeC[1]);
+
+        // -- Water labels --
+        ctx.font = `italic ${10 * invZoom}px Inter`;
+        ctx.fillStyle = 'rgba(88, 166, 255, 0.35)';
+        const atlP = geoToCanvas(26.5, -79.80, W, H, PAD);
+        ctx.fillText('ATLANTIC OCEAN', atlP[0], atlP[1]);
+        const gulfP = geoToCanvas(27.5, -82.95, W, H, PAD);
+        ctx.fillText('GULF OF', gulfP[0], gulfP[1]);
+        ctx.fillText('MEXICO', gulfP[0], gulfP[1] + 13 * invZoom);
+
+        // -- County borders (visible at zoom >= 1.5) --
+        if (mapZoom >= 1.5) {
+            for (const cb of COUNTY_BORDERS) {
+                const [x1, y1] = geoToCanvas(cb.from.lat, cb.from.lon, W, H, PAD);
+                const [x2, y2] = geoToCanvas(cb.to.lat, cb.to.lon, W, H, PAD);
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+                ctx.strokeStyle = 'rgba(70, 80, 90, 0.6)';
+                ctx.lineWidth = 0.8 * invZoom;
+                ctx.setLineDash([4 * invZoom, 4 * invZoom]);
+                ctx.stroke();
+                ctx.setLineDash([]);
+
+                // County label at midpoint
+                if (mapZoom >= 1.8) {
+                    const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+                    ctx.font = `${5.5 * invZoom}px Inter`;
+                    ctx.fillStyle = 'rgba(100, 110, 120, 0.7)';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'bottom';
+                    ctx.fillText(cb.label, mx, my - 2 * invZoom);
+                }
+            }
+        }
+
+        // -- Map cities (zoom-dependent) --
+        for (const c of MAP_CITIES) {
+            if (mapZoom < c.minZoom) continue;
+            const [cx, cy] = geoToCanvas(c.lat, c.lon, W, H, PAD);
+            const sz = c.size === 'large' ? 8 : c.size === 'medium' ? 7 : 6;
+            const alpha = c.size === 'large' ? 0.55 : c.size === 'medium' ? 0.40 : 0.28;
+
+            // Small circle marker
+            ctx.beginPath();
+            ctx.arc(cx, cy, 1.5 * invZoom, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(139, 148, 158, ${alpha})`;
+            ctx.fill();
+
+            ctx.font = `${sz * invZoom}px Inter`;
+            ctx.fillStyle = `rgba(160, 170, 180, ${alpha + 0.1})`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            ctx.fillText(c.name, cx, cy + 3 * invZoom);
+        }
+
+        // -- Buoys --
+        for (const b of BUOYS) {
+            const [bx, by] = geoToCanvas(b.lat, b.lon, W, H, PAD);
+            // Diamond shape for buoy
+            const bs = 4 * invZoom;
+            ctx.beginPath();
+            ctx.moveTo(bx, by - bs);
+            ctx.lineTo(bx + bs, by);
+            ctx.lineTo(bx, by + bs);
+            ctx.lineTo(bx - bs, by);
+            ctx.closePath();
+            ctx.fillStyle = 'rgba(57, 208, 216, 0.6)';
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(57, 208, 216, 0.4)';
+            ctx.lineWidth = 0.8 * invZoom;
+            ctx.stroke();
+
+            ctx.font = `${6 * invZoom}px JetBrains Mono`;
+            ctx.fillStyle = 'rgba(57, 208, 216, 0.5)';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            ctx.fillText(b.id, bx, by + bs + 2 * invZoom);
+            ctx.font = `${5.5 * invZoom}px Inter`;
+            ctx.fillText(b.name, bx, by + bs + 2 * invZoom + 7 * invZoom);
+
+            // Show SST if available
+            const buoyWx = stationWxData[b.id];
+            if (buoyWx && buoyWx.sst != null) {
+                ctx.font = `bold ${6 * invZoom}px JetBrains Mono`;
+                ctx.fillStyle = 'rgba(57, 208, 216, 0.8)';
+                ctx.textBaseline = 'bottom';
+                ctx.fillText(buoyWx.sst.toFixed(1) + '°F SST', bx, by - bs - 2 * invZoom);
+            }
+        }
+
+        // -- FAWN mesonet stations (triangle markers) --
+        if (mapZoom >= 1.3) {
+            for (const f of FAWN_STATIONS) {
+                const [fx, fy] = geoToCanvas(f.lat, f.lon, W, H, PAD);
+                const fs = 3.5 * invZoom;
+                // Triangle marker
+                ctx.beginPath();
+                ctx.moveTo(fx, fy - fs);
+                ctx.lineTo(fx + fs * 0.87, fy + fs * 0.5);
+                ctx.lineTo(fx - fs * 0.87, fy + fs * 0.5);
+                ctx.closePath();
+                ctx.fillStyle = 'rgba(63, 185, 80, 0.45)';
+                ctx.fill();
+                ctx.strokeStyle = 'rgba(63, 185, 80, 0.3)';
+                ctx.lineWidth = 0.6 * invZoom;
+                ctx.stroke();
+
+                if (mapZoom >= 1.6) {
+                    ctx.font = `${5.5 * invZoom}px Inter`;
+                    ctx.fillStyle = 'rgba(63, 185, 80, 0.4)';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'top';
+                    ctx.fillText(f.name, fx, fy + fs + 2 * invZoom);
+                }
+            }
+        }
+
+        // -- Label collision tracking --
+        const placedLabels = [];  // [{x, y, w, h}]
+
+        function canPlace(cx, cy, tw, th) {
+            const pad = 3 / mapZoom;  // more padding at low zoom
+            for (const lb of placedLabels) {
+                if (cx - tw/2 - pad < lb.x + lb.w/2 &&
+                    cx + tw/2 + pad > lb.x - lb.w/2 &&
+                    cy - th/2 - pad < lb.y + lb.h/2 &&
+                    cy + th/2 + pad > lb.y - lb.h/2) return false;
+            }
+            return true;
+        }
+
+        function placeLabel(ctx, text, x, y, font, fill, baseline, priority) {
+            // Priority: 0 = always try, 1 = needs zoom >= 1.3, 2 = needs zoom >= 1.8
+            if (priority === 1 && mapZoom < 1.3) return false;
+            if (priority === 2 && mapZoom < 1.8) return false;
+            ctx.font = font;
+            const m = ctx.measureText(text);
+            const tw = m.width;
+            const th = parseFloat(font) * 1.3;
+            const ly = baseline === 'bottom' ? y - th/2 : y + th/2;
+            if (!canPlace(x, ly, tw, th)) return false;
+            ctx.fillStyle = fill;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = baseline;
+            ctx.fillText(text, x, y);
+            placedLabels.push({ x, y: ly, w: tw, h: th });
+            return true;
+        }
+
+        // -- Weather stations --
+        for (const key of stationKeys) {
+            const s = STATIONS[key];
+            const [x, y] = geoToCanvas(s.lat, s.lon, W, H, PAD);
+            const code = key.replace(/^K/, '');
+            const isTarget = !!s.target;
+            const baseColor = stationColors[key] || '#58a6ff';
+            const wxData = stationWxData[key];
+
+            const pulsePhase = (t / 1500 + (x * 0.01 + y * 0.01)) % (2 * Math.PI);
+            const pulse = 1 + 0.1 * Math.sin(pulsePhase * 2 * Math.PI);
+            const baseR = isTarget ? 5 : 2.8;
+            const r = baseR * pulse * invZoom;
+
+            // Glow
+            const glowR = r * (isTarget ? 3 : 2);
+            const glow = ctx.createRadialGradient(x, y, 0, x, y, glowR);
+            glow.addColorStop(0, baseColor + '35');
+            glow.addColorStop(1, baseColor + '00');
+            ctx.beginPath();
+            ctx.arc(x, y, glowR, 0, Math.PI * 2);
+            ctx.fillStyle = glow;
+            ctx.fill();
+
+            // Dot
+            ctx.beginPath();
+            ctx.arc(x, y, r, 0, Math.PI * 2);
+            ctx.fillStyle = baseColor;
+            ctx.fill();
+
+            // Target ring
+            if (isTarget) {
+                const rp = 1 + 0.12 * Math.sin(pulsePhase * 2 * Math.PI + 1);
+                ctx.beginPath();
+                ctx.arc(x, y, r * 1.8 * rp, 0, Math.PI * 2);
+                ctx.strokeStyle = baseColor + '45';
+                ctx.lineWidth = 1 * invZoom;
+                ctx.stroke();
+            }
+
+            const fs = 7 * invZoom;
+            const fsBig = 8 * invZoom;
+            const gap = 2 * invZoom;
+
+            // Label priority: KMIA=0 (always), other stations=1 (zoom>=1.3)
+            const labelPri = isTarget ? 0 : 1;
+
+            // City name above (with collision check)
+            const cityFont = isTarget ? `600 ${fsBig}px Inter` : `${fs}px Inter`;
+            const cityFill = isTarget ? 'rgba(230,237,243,0.95)' : 'rgba(170,180,190,0.7)';
+            if (s.city) {
+                placeLabel(ctx, s.city, x, y - r - gap, cityFont, cityFill, 'bottom', isTarget ? 0 : 2);
+            }
+
+            // Station code below (with collision check)
+            const codeFont = isTarget ? `bold ${fsBig}px JetBrains Mono` : `${fs}px JetBrains Mono`;
+            const codeFill = isTarget ? '#ffffff' : '#b0b8c0';
+            placeLabel(ctx, code, x, y + r + gap, codeFont, codeFill, 'top', labelPri);
+
+            // Wx data below code (only at zoom >= 1.8, with collision check)
+            if (wxData) {
+                const tempStr = wxData.temp != null ? wxData.temp.toFixed(0) + '°' : '';
+                const windStr = wxData.wind_speed != null ? wxData.wind_speed.toFixed(0) + 'kt' : '';
+                const wxStr = [tempStr, windStr].filter(Boolean).join(' ');
+                if (wxStr) {
+                    const wxFont = `${6 * invZoom}px JetBrains Mono`;
+                    const wxFill = wxData.temp != null && wxData.temp > 85
+                        ? 'rgba(240, 136, 62, 0.8)'
+                        : wxData.temp != null && wxData.temp < 65
+                        ? 'rgba(57, 208, 216, 0.8)'
+                        : 'rgba(160, 168, 178, 0.6)';
+                    placeLabel(ctx, wxStr, x, y + r + gap + fs + gap, wxFont, wxFill, 'top', 2);
+                }
+            }
+
+            // Wind barb
+            if (wxData && wxData.wind_dir != null && wxData.wind_speed > 2) {
+                const wRad = (wxData.wind_dir - 90) * Math.PI / 180;
+                const bLen = 10 * invZoom;
+                const bx = x + Math.cos(wRad) * (r + 2 * invZoom);
+                const by = y + Math.sin(wRad) * (r + 2 * invZoom);
+                ctx.beginPath();
+                ctx.moveTo(bx, by);
+                ctx.lineTo(bx + Math.cos(wRad) * bLen, by + Math.sin(wRad) * bLen);
+                ctx.strokeStyle = 'rgba(88, 166, 255, 0.3)';
+                ctx.lineWidth = 0.8 * invZoom;
+                ctx.stroke();
+            }
+        }
+
+        ctx.restore();
+        _mapAnimFrame = requestAnimationFrame(drawStationMap);
+    }
+
+    // ── Zoom & pan (desktop + mobile touch) ──
+    if (mapCanvas) {
+        // Desktop: scroll wheel zoom
+        mapCanvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? -0.1 : 0.1;
+            mapZoom = Math.max(1.0, Math.min(8.0, mapZoom + delta));
+        }, { passive: false });
+
+        // Desktop: mouse drag
+        mapCanvas.addEventListener('mousedown', (e) => {
+            _mapDragging = true;
+            _mapDragStartX = e.clientX - mapPanX;
+            _mapDragStartY = e.clientY - mapPanY;
+            mapCanvas.style.cursor = 'grabbing';
+        });
+        window.addEventListener('mousemove', (e) => {
+            if (!_mapDragging) return;
+            const maxPan = (_cssW / 2) * (mapZoom - 1);
+            const maxPanY = (_cssH / 2) * (mapZoom - 1);
+            mapPanX = Math.max(-maxPan, Math.min(maxPan, e.clientX - _mapDragStartX));
+            mapPanY = Math.max(-maxPanY, Math.min(maxPanY, e.clientY - _mapDragStartY));
+        });
+        window.addEventListener('mouseup', () => {
+            _mapDragging = false;
+            if (mapCanvas) mapCanvas.style.cursor = 'grab';
+        });
+
+        // Mobile: touch pan + pinch zoom
+        let _touchStartDist = 0;
+        let _touchStartZoom = 1;
+        let _touchPanning = false;
+        let _touchStartX = 0, _touchStartY = 0;
+
+        mapCanvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            if (e.touches.length === 2) {
+                // Pinch start
+                const dx = e.touches[0].clientX - e.touches[1].clientX;
+                const dy = e.touches[0].clientY - e.touches[1].clientY;
+                _touchStartDist = Math.sqrt(dx * dx + dy * dy);
+                _touchStartZoom = mapZoom;
+            } else if (e.touches.length === 1) {
+                // Pan start
+                _touchPanning = true;
+                _touchStartX = e.touches[0].clientX - mapPanX;
+                _touchStartY = e.touches[0].clientY - mapPanY;
+            }
+        }, { passive: false });
+
+        mapCanvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            if (e.touches.length === 2 && _touchStartDist > 0) {
+                // Pinch zoom
+                const dx = e.touches[0].clientX - e.touches[1].clientX;
+                const dy = e.touches[0].clientY - e.touches[1].clientY;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                const scale = dist / _touchStartDist;
+                mapZoom = Math.max(1.0, Math.min(8.0, _touchStartZoom * scale));
+            } else if (e.touches.length === 1 && _touchPanning) {
+                // Pan (clamped)
+                const maxPan = (_cssW / 2) * (mapZoom - 1);
+                const maxPanY = (_cssH / 2) * (mapZoom - 1);
+                mapPanX = Math.max(-maxPan, Math.min(maxPan, e.touches[0].clientX - _touchStartX));
+                mapPanY = Math.max(-maxPanY, Math.min(maxPanY, e.touches[0].clientY - _touchStartY));
+            }
+        }, { passive: false });
+
+        mapCanvas.addEventListener('touchend', (e) => {
+            _touchPanning = false;
+            _touchStartDist = 0;
+        });
+
+        // Double-tap/click to reset
+        mapCanvas.addEventListener('dblclick', () => {
+            mapZoom = 1.0; mapPanX = 0; mapPanY = 0;
+        });
+        mapCanvas.style.cursor = 'grab';
+        mapCanvas.style.touchAction = 'none';  // prevent browser zoom on canvas
+    }
+
+    function updateStationColors(stationData) {
+        if (!stationData || typeof stationData !== 'object') return;
+        for (const [id, regime] of Object.entries(stationData)) {
+            stationColors[id] = REGIME_COLORS[(regime || '').toLowerCase()] || '#58a6ff';
+        }
+    }
+
+    function updateStationWx(wxData) {
+        if (!wxData || typeof wxData !== 'object') return;
+        Object.assign(stationWxData, wxData);
+    }
+
+    drawStationMap();
+    </script>
+</body>
+</html>

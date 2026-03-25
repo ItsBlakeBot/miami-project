@@ -1,0 +1,27 @@
+# macOS
+.DS_Store
+
+# Python cache/build
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+
+# Virtualenv
+.venv/
+
+# Runtime databases/artifacts
+*.db
+*.db-wal
+*.db-shm
+logs/
+
+# Local analysis artifacts generated at runtime
+analysis_data/*.jsonl
+analysis_data/*candidate*.json
+analysis_data/*.pt
+reviews/prompts/
+
+# IDE
+.idea/
+.vscode/

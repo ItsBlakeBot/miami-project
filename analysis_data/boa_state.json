@@ -1,0 +1,684 @@
+{
+  "high": {
+    "market_type": "high",
+    "total_updates": 13,
+    "config": {
+      "learning_rate": 0.5,
+      "forget_rate": 0.02,
+      "use_second_order": true
+    },
+    "sources": {
+      "openmeteo:ECMWF-IFS-Ensemble": {
+        "source_key": "openmeteo:ECMWF-IFS-Ensemble",
+        "weight": 0.0,
+        "cumulative_loss": 40.015959,
+        "cumulative_squared_loss": 206.185172,
+        "n_updates": 13,
+        "n_rounds_total": 13,
+        "last_crps": 2.090109,
+        "last_run_time": null
+      },
+      "openmeteo:GFS-Ensemble": {
+        "source_key": "openmeteo:GFS-Ensemble",
+        "weight": 0.0,
+        "cumulative_loss": 32.957673,
+        "cumulative_squared_loss": 158.997164,
+        "n_updates": 13,
+        "n_rounds_total": 13,
+        "last_crps": 2.287465,
+        "last_run_time": null
+      },
+      "openmeteo:JMA-GSM": {
+        "source_key": "openmeteo:JMA-GSM",
+        "weight": 0.0,
+        "cumulative_loss": 38.953034,
+        "cumulative_squared_loss": 306.002515,
+        "n_updates": 13,
+        "n_rounds_total": 13,
+        "last_crps": 1.919226,
+        "last_run_time": null
+      },
+      "openmeteo:UKMO-Global": {
+        "source_key": "openmeteo:UKMO-Global",
+        "weight": 0.0,
+        "cumulative_loss": 32.140703,
+        "cumulative_squared_loss": 172.690923,
+        "n_updates": 13,
+        "n_rounds_total": 13,
+        "last_crps": 1.927607,
+        "last_run_time": null
+      },
+      "openmeteo:ECMWF-IFS": {
+        "source_key": "openmeteo:ECMWF-IFS",
+        "weight": 0.0,
+        "cumulative_loss": 40.706243,
+        "cumulative_squared_loss": 214.909791,
+        "n_updates": 13,
+        "n_rounds_total": 13,
+        "last_crps": 2.0842,
+        "last_run_time": null
+      },
+      "openmeteo:GEM-Global": {
+        "source_key": "openmeteo:GEM-Global",
+        "weight": 0.0,
+        "cumulative_loss": 35.522829,
+        "cumulative_squared_loss": 220.274256,
+        "n_updates": 13,
+        "n_rounds_total": 13,
+        "last_crps": 1.927607,
+        "last_run_time": null
+      },
+      "openmeteo:ICON-Global": {
+        "source_key": "openmeteo:ICON-Global",
+        "weight": 0.0,
+        "cumulative_loss": 33.789739,
+        "cumulative_squared_loss": 268.265732,
+        "n_updates": 13,
+        "n_rounds_total": 13,
+        "last_crps": 1.936969,
+        "last_run_time": null
+      },
+      "openmeteo:GFS-GraphCast": {
+        "source_key": "openmeteo:GFS-GraphCast",
+        "weight": 0.0,
+        "cumulative_loss": 33.943241,
+        "cumulative_squared_loss": 160.258996,
+        "n_updates": 13,
+        "n_rounds_total": 13,
+        "last_crps": 2.552213,
+        "last_run_time": null
+      },
+      "openmeteo:KNMI-Harmonie": {
+        "source_key": "openmeteo:KNMI-Harmonie",
+        "weight": 0.0,
+        "cumulative_loss": 36.992163,
+        "cumulative_squared_loss": 234.922251,
+        "n_updates": 13,
+        "n_rounds_total": 13,
+        "last_crps": 1.927607,
+        "last_run_time": null
+      },
+      "openmeteo:MetNo-Nordic": {
+        "source_key": "openmeteo:MetNo-Nordic",
+        "weight": 0.0,
+        "cumulative_loss": 36.992163,
+        "cumulative_squared_loss": 234.922251,
+        "n_updates": 13,
+        "n_rounds_total": 13,
+        "last_crps": 1.927607,
+        "last_run_time": null
+      },
+      "openmeteo:GFS-Global": {
+        "source_key": "openmeteo:GFS-Global",
+        "weight": 0.0,
+        "cumulative_loss": 28.90637,
+        "cumulative_squared_loss": 161.172653,
+        "n_updates": 13,
+        "n_rounds_total": 13,
+        "last_crps": 1.919226,
+        "last_run_time": null
+      },
+      "openmeteo:GFS-HRRR": {
+        "source_key": "openmeteo:GFS-HRRR",
+        "weight": 0.0,
+        "cumulative_loss": 28.90637,
+        "cumulative_squared_loss": 161.172653,
+        "n_updates": 13,
+        "n_rounds_total": 13,
+        "last_crps": 1.919226,
+        "last_run_time": null
+      },
+      "wethr:UKMO": {
+        "source_key": "wethr:UKMO",
+        "weight": 0.0,
+        "cumulative_loss": 35.755486,
+        "cumulative_squared_loss": 153.976824,
+        "n_updates": 11,
+        "n_rounds_total": 11,
+        "last_crps": 2.624605,
+        "last_run_time": null
+      },
+      "wethr:RAP": {
+        "source_key": "wethr:RAP",
+        "weight": 0.0,
+        "cumulative_loss": 70.94461,
+        "cumulative_squared_loss": 638.179123,
+        "n_updates": 11,
+        "n_rounds_total": 11,
+        "last_crps": 6.438464,
+        "last_run_time": null
+      },
+      "wethr:NBM": {
+        "source_key": "wethr:NBM",
+        "weight": 0.0,
+        "cumulative_loss": 49.175293,
+        "cumulative_squared_loss": 267.496864,
+        "n_updates": 11,
+        "n_rounds_total": 11,
+        "last_crps": 4.482201,
+        "last_run_time": null
+      },
+      "wethr:NAM4KM": {
+        "source_key": "wethr:NAM4KM",
+        "weight": 0.0,
+        "cumulative_loss": 61.454386,
+        "cumulative_squared_loss": 467.360658,
+        "n_updates": 11,
+        "n_rounds_total": 11,
+        "last_crps": 6.438464,
+        "last_run_time": null
+      },
+      "wethr:NAM": {
+        "source_key": "wethr:NAM",
+        "weight": 0.0,
+        "cumulative_loss": 67.049778,
+        "cumulative_squared_loss": 561.49034,
+        "n_updates": 11,
+        "n_rounds_total": 11,
+        "last_crps": 6.678435,
+        "last_run_time": null
+      },
+      "wethr:LAV-MOS": {
+        "source_key": "wethr:LAV-MOS",
+        "weight": 0.0,
+        "cumulative_loss": 44.202983,
+        "cumulative_squared_loss": 207.415613,
+        "n_updates": 11,
+        "n_rounds_total": 11,
+        "last_crps": 4.166947,
+        "last_run_time": null
+      },
+      "wethr:JMA": {
+        "source_key": "wethr:JMA",
+        "weight": 0.0,
+        "cumulative_loss": 50.850415,
+        "cumulative_squared_loss": 319.224231,
+        "n_updates": 11,
+        "n_rounds_total": 11,
+        "last_crps": 3.276522,
+        "last_run_time": null
+      },
+      "wethr:ICON": {
+        "source_key": "wethr:ICON",
+        "weight": 0.0,
+        "cumulative_loss": 64.391885,
+        "cumulative_squared_loss": 509.725716,
+        "n_updates": 11,
+        "n_rounds_total": 11,
+        "last_crps": 6.202498,
+        "last_run_time": null
+      },
+      "wethr:HRRR": {
+        "source_key": "wethr:HRRR",
+        "weight": 0.0,
+        "cumulative_loss": 58.478173,
+        "cumulative_squared_loss": 437.59207,
+        "n_updates": 11,
+        "n_rounds_total": 11,
+        "last_crps": 6.124765,
+        "last_run_time": null
+      },
+      "wethr:GFS": {
+        "source_key": "wethr:GFS",
+        "weight": 0.0,
+        "cumulative_loss": 37.321444,
+        "cumulative_squared_loss": 163.443178,
+        "n_updates": 11,
+        "n_rounds_total": 11,
+        "last_crps": 3.227297,
+        "last_run_time": null
+      },
+      "wethr:GEM-GDPS": {
+        "source_key": "wethr:GEM-GDPS",
+        "weight": 0.0,
+        "cumulative_loss": 52.743296,
+        "cumulative_squared_loss": 321.473363,
+        "n_updates": 11,
+        "n_rounds_total": 11,
+        "last_crps": 5.089474,
+        "last_run_time": null
+      },
+      "wethr:ECMWF-IFS": {
+        "source_key": "wethr:ECMWF-IFS",
+        "weight": 0.0,
+        "cumulative_loss": 53.712166,
+        "cumulative_squared_loss": 334.127051,
+        "n_updates": 11,
+        "n_rounds_total": 11,
+        "last_crps": 4.482201,
+        "last_run_time": null
+      },
+      "wethr:ARPEGE": {
+        "source_key": "wethr:ARPEGE",
+        "weight": 0.0,
+        "cumulative_loss": 56.865281,
+        "cumulative_squared_loss": 376.919145,
+        "n_updates": 11,
+        "n_rounds_total": 11,
+        "last_crps": 5.37465,
+        "last_run_time": null
+      },
+      "wethr:GEFS": {
+        "source_key": "wethr:GEFS",
+        "weight": 5.844e-05,
+        "cumulative_loss": 9.199219,
+        "cumulative_squared_loss": 29.189761,
+        "n_updates": 4,
+        "n_rounds_total": 11,
+        "last_crps": 3.07045,
+        "last_run_time": null
+      },
+      "wethr:GFS-MOS": {
+        "source_key": "wethr:GFS-MOS",
+        "weight": 0.06202648,
+        "cumulative_loss": 5.257135,
+        "cumulative_squared_loss": 9.204874,
+        "n_updates": 4,
+        "n_rounds_total": 11,
+        "last_crps": 1.308376,
+        "last_run_time": null
+      },
+      "wethr:NAM-MOS": {
+        "source_key": "wethr:NAM-MOS",
+        "weight": 0.02946221,
+        "cumulative_loss": 5.941393,
+        "cumulative_squared_loss": 10.814169,
+        "n_updates": 4,
+        "n_rounds_total": 11,
+        "last_crps": 1.788475,
+        "last_run_time": null
+      },
+      "wethr:NBS-MOS": {
+        "source_key": "wethr:NBS-MOS",
+        "weight": 0.0246654,
+        "cumulative_loss": 5.950641,
+        "cumulative_squared_loss": 11.5065,
+        "n_updates": 4,
+        "n_rounds_total": 11,
+        "last_crps": 1.308376,
+        "last_run_time": null
+      },
+      "openmeteo:ECMWF-AIFS": {
+        "source_key": "openmeteo:ECMWF-AIFS",
+        "weight": 0.0,
+        "cumulative_loss": 27.297978,
+        "cumulative_squared_loss": 151.424368,
+        "n_updates": 9,
+        "n_rounds_total": 9,
+        "last_crps": 2.0842,
+        "last_run_time": null
+      },
+      "herbie:ECMWF-IFS-Herbie": {
+        "source_key": "herbie:ECMWF-IFS-Herbie",
+        "weight": 1.0,
+        "cumulative_loss": 2.098123,
+        "cumulative_squared_loss": 4.402121,
+        "n_updates": 1,
+        "n_rounds_total": 1,
+        "last_crps": 2.098123,
+        "last_run_time": null
+      },
+      "herbie:NBM-Herbie": {
+        "source_key": "herbie:NBM-Herbie",
+        "weight": 0.0,
+        "cumulative_loss": 38.672828,
+        "cumulative_squared_loss": 1495.587643,
+        "n_updates": 1,
+        "n_rounds_total": 1,
+        "last_crps": 38.672828,
+        "last_run_time": null
+      },
+      "herbie:GFS-Herbie": {
+        "source_key": "herbie:GFS-Herbie",
+        "weight": 0.31922908,
+        "cumulative_loss": 2.763742,
+        "cumulative_squared_loss": 7.638269,
+        "n_updates": 1,
+        "n_rounds_total": 1,
+        "last_crps": 2.763742,
+        "last_run_time": null
+      }
+    }
+  },
+  "low": {
+    "market_type": "low",
+    "total_updates": 13,
+    "config": {
+      "learning_rate": 0.5,
+      "forget_rate": 0.02,
+      "use_second_order": true
+    },
+    "sources": {
+      "openmeteo:ECMWF-IFS-Ensemble": {
+        "source_key": "openmeteo:ECMWF-IFS-Ensemble",
+        "weight": 0.00540771,
+        "cumulative_loss": 15.816466,
+        "cumulative_squared_loss": 25.245598,
+        "n_updates": 13,
+        "n_rounds_total": 13,
+        "last_crps": 1.814249,
+        "last_run_time": null
+      },
+      "openmeteo:GFS-Ensemble": {
+        "source_key": "openmeteo:GFS-Ensemble",
+        "weight": 0.0,
+        "cumulative_loss": 42.832119,
+        "cumulative_squared_loss": 183.033306,
+        "n_updates": 13,
+        "n_rounds_total": 13,
+        "last_crps": 4.412204,
+        "last_run_time": null
+      },
+      "openmeteo:JMA-GSM": {
+        "source_key": "openmeteo:JMA-GSM",
+        "weight": 0.0,
+        "cumulative_loss": 30.43197,
+        "cumulative_squared_loss": 132.890452,
+        "n_updates": 13,
+        "n_rounds_total": 13,
+        "last_crps": 2.861135,
+        "last_run_time": null
+      },
+      "openmeteo:UKMO-Global": {
+        "source_key": "openmeteo:UKMO-Global",
+        "weight": 3.8e-07,
+        "cumulative_loss": 20.266394,
+        "cumulative_squared_loss": 54.595229,
+        "n_updates": 13,
+        "n_rounds_total": 13,
+        "last_crps": 2.140596,
+        "last_run_time": null
+      },
+      "openmeteo:ECMWF-IFS": {
+        "source_key": "openmeteo:ECMWF-IFS",
+        "weight": 0.00397801,
+        "cumulative_loss": 16.136798,
+        "cumulative_squared_loss": 25.83311,
+        "n_updates": 13,
+        "n_rounds_total": 13,
+        "last_crps": 1.817756,
+        "last_run_time": null
+      },
+      "openmeteo:GEM-Global": {
+        "source_key": "openmeteo:GEM-Global",
+        "weight": 0.0,
+        "cumulative_loss": 27.011175,
+        "cumulative_squared_loss": 99.538454,
+        "n_updates": 13,
+        "n_rounds_total": 13,
+        "last_crps": 2.772611,
+        "last_run_time": null
+      },
+      "openmeteo:ICON-Global": {
+        "source_key": "openmeteo:ICON-Global",
+        "weight": 0.00069811,
+        "cumulative_loss": 17.44605,
+        "cumulative_squared_loss": 30.175272,
+        "n_updates": 13,
+        "n_rounds_total": 13,
+        "last_crps": 2.020261,
+        "last_run_time": null
+      },
+      "openmeteo:GFS-GraphCast": {
+        "source_key": "openmeteo:GFS-GraphCast",
+        "weight": 0.0,
+        "cumulative_loss": 45.06555,
+        "cumulative_squared_loss": 198.700769,
+        "n_updates": 13,
+        "n_rounds_total": 13,
+        "last_crps": 4.114405,
+        "last_run_time": null
+      },
+      "openmeteo:KNMI-Harmonie": {
+        "source_key": "openmeteo:KNMI-Harmonie",
+        "weight": 0.00067825,
+        "cumulative_loss": 16.278492,
+        "cumulative_squared_loss": 32.625804,
+        "n_updates": 13,
+        "n_rounds_total": 13,
+        "last_crps": 1.844229,
+        "last_run_time": null
+      },
+      "openmeteo:MetNo-Nordic": {
+        "source_key": "openmeteo:MetNo-Nordic",
+        "weight": 0.00067825,
+        "cumulative_loss": 16.278492,
+        "cumulative_squared_loss": 32.625804,
+        "n_updates": 13,
+        "n_rounds_total": 13,
+        "last_crps": 1.844229,
+        "last_run_time": null
+      },
+      "openmeteo:GFS-Global": {
+        "source_key": "openmeteo:GFS-Global",
+        "weight": 0.00746735,
+        "cumulative_loss": 15.612875,
+        "cumulative_squared_loss": 24.361925,
+        "n_updates": 13,
+        "n_rounds_total": 13,
+        "last_crps": 1.879985,
+        "last_run_time": null
+      },
+      "openmeteo:GFS-HRRR": {
+        "source_key": "openmeteo:GFS-HRRR",
+        "weight": 0.00746735,
+        "cumulative_loss": 15.612875,
+        "cumulative_squared_loss": 24.361925,
+        "n_updates": 13,
+        "n_rounds_total": 13,
+        "last_crps": 1.879985,
+        "last_run_time": null
+      },
+      "wethr:UKMO": {
+        "source_key": "wethr:UKMO",
+        "weight": 0.0,
+        "cumulative_loss": 86.587412,
+        "cumulative_squared_loss": 802.610747,
+        "n_updates": 11,
+        "n_rounds_total": 11,
+        "last_crps": 9.599655,
+        "last_run_time": null
+      },
+      "wethr:RAP": {
+        "source_key": "wethr:RAP",
+        "weight": 0.0,
+        "cumulative_loss": 24.481054,
+        "cumulative_squared_loss": 89.66003,
+        "n_updates": 11,
+        "n_rounds_total": 11,
+        "last_crps": 3.689674,
+        "last_run_time": null
+      },
+      "wethr:NBM": {
+        "source_key": "wethr:NBM",
+        "weight": 0.0,
+        "cumulative_loss": 56.318315,
+        "cumulative_squared_loss": 366.0566,
+        "n_updates": 11,
+        "n_rounds_total": 11,
+        "last_crps": 6.285068,
+        "last_run_time": null
+      },
+      "wethr:NAM4KM": {
+        "source_key": "wethr:NAM4KM",
+        "weight": 0.0,
+        "cumulative_loss": 41.47069,
+        "cumulative_squared_loss": 224.57392,
+        "n_updates": 11,
+        "n_rounds_total": 11,
+        "last_crps": 6.046164,
+        "last_run_time": null
+      },
+      "wethr:NAM": {
+        "source_key": "wethr:NAM",
+        "weight": 0.0,
+        "cumulative_loss": 45.072937,
+        "cumulative_squared_loss": 248.573921,
+        "n_updates": 11,
+        "n_rounds_total": 11,
+        "last_crps": 5.355965,
+        "last_run_time": null
+      },
+      "wethr:LAV-MOS": {
+        "source_key": "wethr:LAV-MOS",
+        "weight": 0.0,
+        "cumulative_loss": 57.553652,
+        "cumulative_squared_loss": 383.539282,
+        "n_updates": 11,
+        "n_rounds_total": 11,
+        "last_crps": 6.365618,
+        "last_run_time": null
+      },
+      "wethr:JMA": {
+        "source_key": "wethr:JMA",
+        "weight": 0.0,
+        "cumulative_loss": 37.533923,
+        "cumulative_squared_loss": 193.41542,
+        "n_updates": 11,
+        "n_rounds_total": 11,
+        "last_crps": 5.734315,
+        "last_run_time": null
+      },
+      "wethr:ICON": {
+        "source_key": "wethr:ICON",
+        "weight": 0.0,
+        "cumulative_loss": 22.427686,
+        "cumulative_squared_loss": 72.934764,
+        "n_updates": 11,
+        "n_rounds_total": 11,
+        "last_crps": 3.249434,
+        "last_run_time": null
+      },
+      "wethr:HRRR": {
+        "source_key": "wethr:HRRR",
+        "weight": 0.0,
+        "cumulative_loss": 43.348321,
+        "cumulative_squared_loss": 247.985755,
+        "n_updates": 11,
+        "n_rounds_total": 11,
+        "last_crps": 6.046164,
+        "last_run_time": null
+      },
+      "wethr:GFS": {
+        "source_key": "wethr:GFS",
+        "weight": 0.0,
+        "cumulative_loss": 80.68533,
+        "cumulative_squared_loss": 716.238145,
+        "n_updates": 11,
+        "n_rounds_total": 11,
+        "last_crps": 8.685101,
+        "last_run_time": null
+      },
+      "wethr:GEM-GDPS": {
+        "source_key": "wethr:GEM-GDPS",
+        "weight": 0.0,
+        "cumulative_loss": 37.374659,
+        "cumulative_squared_loss": 188.421964,
+        "n_updates": 11,
+        "n_rounds_total": 11,
+        "last_crps": 4.920077,
+        "last_run_time": null
+      },
+      "wethr:ECMWF-IFS": {
+        "source_key": "wethr:ECMWF-IFS",
+        "weight": 0.0,
+        "cumulative_loss": 40.238527,
+        "cumulative_squared_loss": 237.685681,
+        "n_updates": 11,
+        "n_rounds_total": 11,
+        "last_crps": 6.446612,
+        "last_run_time": null
+      },
+      "wethr:ARPEGE": {
+        "source_key": "wethr:ARPEGE",
+        "weight": 0.0,
+        "cumulative_loss": 36.717348,
+        "cumulative_squared_loss": 170.389419,
+        "n_updates": 11,
+        "n_rounds_total": 11,
+        "last_crps": 4.920077,
+        "last_run_time": null
+      },
+      "wethr:GEFS": {
+        "source_key": "wethr:GEFS",
+        "weight": 6e-08,
+        "cumulative_loss": 15.233791,
+        "cumulative_squared_loss": 72.207472,
+        "n_updates": 4,
+        "n_rounds_total": 11,
+        "last_crps": 2.916628,
+        "last_run_time": null
+      },
+      "wethr:GFS-MOS": {
+        "source_key": "wethr:GFS-MOS",
+        "weight": 0.42288091,
+        "cumulative_loss": 7.876494,
+        "cumulative_squared_loss": 23.688486,
+        "n_updates": 4,
+        "n_rounds_total": 11,
+        "last_crps": 1.19404,
+        "last_run_time": null
+      },
+      "wethr:NAM-MOS": {
+        "source_key": "wethr:NAM-MOS",
+        "weight": 0.14289605,
+        "cumulative_loss": 8.225068,
+        "cumulative_squared_loss": 27.33123,
+        "n_updates": 4,
+        "n_rounds_total": 11,
+        "last_crps": 0.766073,
+        "last_run_time": null
+      },
+      "wethr:NBS-MOS": {
+        "source_key": "wethr:NBS-MOS",
+        "weight": 1.0,
+        "cumulative_loss": 7.666205,
+        "cumulative_squared_loss": 20.666406,
+        "n_updates": 4,
+        "n_rounds_total": 11,
+        "last_crps": 0.766073,
+        "last_run_time": null
+      },
+      "openmeteo:ECMWF-AIFS": {
+        "source_key": "openmeteo:ECMWF-AIFS",
+        "weight": 0.04177922,
+        "cumulative_loss": 13.096225,
+        "cumulative_squared_loss": 22.507789,
+        "n_updates": 9,
+        "n_rounds_total": 9,
+        "last_crps": 1.817756,
+        "last_run_time": null
+      },
+      "herbie:ECMWF-IFS-Herbie": {
+        "source_key": "herbie:ECMWF-IFS-Herbie",
+        "weight": 0.0,
+        "cumulative_loss": 12.278399,
+        "cumulative_squared_loss": 150.75908,
+        "n_updates": 1,
+        "n_rounds_total": 1,
+        "last_crps": 12.278399,
+        "last_run_time": null
+      },
+      "herbie:NBM-Herbie": {
+        "source_key": "herbie:NBM-Herbie",
+        "weight": 0.0,
+        "cumulative_loss": 18.599145,
+        "cumulative_squared_loss": 345.928193,
+        "n_updates": 1,
+        "n_rounds_total": 1,
+        "last_crps": 18.599145,
+        "last_run_time": null
+      },
+      "herbie:GFS-Herbie": {
+        "source_key": "herbie:GFS-Herbie",
+        "weight": 0.0,
+        "cumulative_loss": 10.318532,
+        "cumulative_squared_loss": 106.472113,
+        "n_updates": 1,
+        "n_rounds_total": 1,
+        "last_crps": 10.318532,
+        "last_run_time": null
+      }
+    }
+  }
+}

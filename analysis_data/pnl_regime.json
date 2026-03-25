@@ -1,0 +1,13 @@
+{
+  "regime": "degraded",
+  "changepoint_probability": 0.0,
+  "run_length_since_change": 0,
+  "rolling_sharpe": null,
+  "rolling_win_rate": null,
+  "cumulative_pnl_cents": -65.0,
+  "n_settlement_days": 3,
+  "recommended_size_multiplier": 0.75,
+  "notes": [
+    "Low win rate (0.0%) \u2014 below breakeven"
+  ]
+}

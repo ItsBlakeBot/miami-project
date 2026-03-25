@@ -1,0 +1,22 @@
+{
+  "h": {
+    "temp_f": 5.067,
+    "dew_f": 5.067,
+    "pressure_hpa": 4.567,
+    "wind_speed_mph": 5.0,
+    "wind_gust_mph": 4.567,
+    "wind_dir_sin": 4.001,
+    "wind_dir_cos": 4.067,
+    "sky_cover_pct": 5.567
+  },
+  "k": {
+    "temp_f": 0.8,
+    "dew_f": 0.8,
+    "pressure_hpa": 0.6,
+    "wind_speed_mph": 0.8,
+    "wind_gust_mph": 0.8,
+    "wind_dir_sin": 0.5,
+    "wind_dir_cos": 0.5,
+    "sky_cover_pct": 0.8
+  }
+}

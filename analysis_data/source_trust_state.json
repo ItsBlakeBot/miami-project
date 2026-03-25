@@ -1,0 +1,6 @@
+{
+  "family_multipliers": {
+    "openmeteo": 1.3,
+    "wethr": 0.7
+  }
+}

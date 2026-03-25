@@ -1,0 +1,121 @@
+flowchart TD
+    subgraph COLLECTION["Collection Layer (17 async loops)"]
+        SSE[Wethr SSE\n1-min obs + envelope]
+        KWS[Kalshi WS\norderbook deltas]
+        FCST[Forecast Polling\nWethr REST + Open-Meteo\n19+ models + 2 ensembles]
+        NWS[NWS\nASOS obs + CLI truth]
+        KREST[Kalshi REST\nticker discovery]
+        IEM[IEM Nearby\n200km ASOS radius]
+        NDBC[NDBC\nSST buoys]
+        FAWN[FAWN\n10 stations\nsolar + soil + air]
+        ATMO[Atmospheric\nCAPE + precip]
+        PLEV[Pressure Levels\n925-500 hPa]
+        GRID[NWS Gridpoint\nmixing height]
+        HRRR_SRC[HRRR via Herbie\nhourly CAPE PW cloud\nradiation upper-air]
+        GOES_SRC[GOES-19 Satellite\n10-min cloud mask\nCAPE LI stability]
+    end
+
+    subgraph LIVE["Live State (in-memory)"]
+        LS[LiveState\nobs_changed event\nmarket_prices cache\nrunning high/low cache]
+    end
+
+    SSE -->|obs + wethr envelope| DB[(miami_collector.db\n~400MB SQLite WAL)]
+    SSE -->|temp delta >= 0.5F| LS
+    KWS -->|snapshots + brackets| DB
+    KWS -->|last_price_cents| LS
+    FCST -->|model_forecasts| DB
+    NWS -->|observations + CLI| DB
+    KREST -->|active_brackets| DB
+    IEM -->|nearby_observations| DB
+    NDBC -->|sst_observations| DB
+    FAWN -->|fawn_observations| DB
+    ATMO -->|atmospheric_data| DB
+    PLEV -->|pressure_levels| DB
+    GRID -->|gridpoint_data| DB
+    HRRR_SRC -->|atmospheric_data\nmodel=HRRR| DB
+    GOES_SRC -->|atmospheric_data\nmodel=GOES-19-SAT| DB
+
+    subgraph INFERENCE["Inference Pipeline (obs-triggered / 5-min fallback)"]
+        direction TB
+
+        SIG[signal_engine.py\nrunning high/low\n7 deterministic signals]
+
+        LETKF[letkf.py\nRegional Cluster LETKF\n14 stations SE Florida\nGaspari-Cohn + RTPS\nSage-Husa adaptive R]
+
+        subgraph BASELINE["Baseline Belief Construction"]
+            BOA_W[boa.py\nBOA sleeping expert weights\nCRPS-based online learning\noverrides source trust T1.4]
+            BASE[baseline_engine.py\nBOA-weighted consensus\nfreshness + tracking + family]
+            EMOS_CAL[emos.py\nEMOS calibration\nclosed-form CRPS fitting\nmu = a + b*consensus\nsigma² = c + d*spread²]
+        end
+
+        CLOUD[cloud_cover.py\nMETAR sky codes\nFAWN solar clearness\nGOES-19 cloud mask]
+
+        CD[changepoint_detector.py\nBOCPD primary\nCUSUM backup\nrun length + probability]
+
+        REGIME[regime_catalog.py\n6 live regimes\nmarine_stable | inland_heating\ncloud_suppression | convective_outflow\nfrontal_passage | transition\nσ scaling + μ bias]
+
+        SKF_D[kalman_regimes.py\nSKF DORMANT\nlogs for research\ncorrections disabled]
+
+        subgraph ANCHOR["Running Extreme Anchoring"]
+            ANC[mu floored at running high\nmu ceilinged at running low\nremaining-move prior blend]
+        end
+
+        subgraph PRICING["Bracket Pricing"]
+            BP[bracket_pricer.py\ntruncated normal CDF\nhigh: truncated below running high\nlow: truncated above running low]
+            ED[edge_detector.py\nKalshi fee-aware\nceil 0.07×P×1-P×100\nYES + NO edge per bracket]
+            ARB[bracket_arbitrage.py\nsum-of-prices monitor\ndiagnostic only]
+        end
+    end
+
+    DB --> SIG
+    DB --> LETKF
+    SIG --> BOA_W
+    BOA_W --> BASE
+    BASE --> EMOS_CAL
+    EMOS_CAL --> CLOUD
+    CLOUD --> CD
+    CD --> REGIME
+    CD --> SKF_D
+    REGIME --> ANC
+    ANC --> BP
+    LS -->|market_prices| ED
+    BP --> ED
+    ED --> ARB
+    ED -->|bracket_estimates\nYES + NO edge| DB
+
+    subgraph TRADING["Paper Trading"]
+        PT[paper_trader.py\nentry/exit/settlement\nconsumes TraderPolicy]
+        TP[weather-trader/\ntrader_policy.py\nside + sizing]
+    end
+
+    DB --> TP
+    TP --> PT
+    DB --> PT
+    PT -->|paper_trades + marks| DB
+
+    subgraph DAILY["Daily Recalibration (post-settlement ~09:00 LST)"]
+        ANEN[anen_archiver.py\nforecast-obs pairs\nfor Analog Ensemble]
+        DRIFT[drift_detector.py\nPSI concept drift\ntriggers shorter EMOS window]
+        EMOS_FIT[emos.py refit\n40-day window\n20-day if drift]
+        BOA_UPD[boa.py update\nsleeping expert protocol\nCRPS from settlement]
+        PNL[pnl_regime_detector.py\nBOCPD on daily PnL\nposition scaling]
+        REG_REV[regime review\nflag unrecognized\nfor HDP-HMM discovery]
+        HEALTH[health_monitor.py\nBrier CRPS calibration\nalerts + Sharpe]
+    end
+
+    DB --> ANEN
+    DB --> DRIFT
+    DRIFT --> EMOS_FIT
+    EMOS_FIT -->|emos_state.json| DB
+    DB --> BOA_UPD
+    BOA_UPD -->|boa_state.json| DB
+    DB --> PNL
+    PNL -->|pnl_regime.json| DB
+    DB --> REG_REV
+    DB --> HEALTH
+
+    subgraph CONFIG["Tunable Config (hot-reload)"]
+        CFG[inference_config.json\nboa_min_updates\nregime_confidence_gate\nskf_corrections_enabled\nletkf params\nall thresholds tunable]
+    end
+
+    CFG -.->|hot-reload| INFERENCE

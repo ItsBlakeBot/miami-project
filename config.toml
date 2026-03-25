@@ -1,0 +1,78 @@
+[station]
+code = "KMIA"
+label = "Miami"
+lat = 25.7959
+lon = -80.2870
+nws_office = "MFL"
+nws_grid_x = 75
+nws_grid_y = 52
+tz_standard = "Etc/GMT+5"
+utc_offset_hours = -5
+dsm_zulu = "11:00"
+elevation_m = 2.4
+kalshi_high_series = "KXHIGHMIA"
+kalshi_low_series = "KXLOWTMIA"
+nws_cli_location = "MIA"
+
+[wethr]
+rest_base = "https://wethr.net/api/v2"
+sse_base = "https://wethr.net:3443/api/v2"
+forecast_poll_secs = 300
+cache_ttl_secs = 300
+
+[openmeteo]
+base_url = "https://customer-api.open-meteo.com/v1/forecast"
+ensemble_url = "https://ensemble-api.open-meteo.com/v1/ensemble"
+det_poll_secs = 300
+ens_poll_secs = 3600
+plev_poll_secs = 3600
+
+[nws]
+base_url = "https://api.weather.gov"
+user_agent = "MiamiCollector/0.1 (weather-research)"
+obs_poll_secs = 150
+cli_poll_secs = 1800
+
+[kalshi]
+rest_base = "https://api.elections.kalshi.com/trade-api/v2"
+ws_url = "wss://api.elections.kalshi.com/trade-api/ws/v2"
+market_discovery_secs = 600
+ws_ping_secs = 20
+ws_ping_timeout_secs = 10
+
+[synoptic]
+radius_mi = 30.0
+poll_secs = 300
+within_minutes = 30
+max_stations = 50
+
+[iem]
+network = "FL_ASOS"
+radius_mi = 125.0   # ~200km — captures stations from Key West to Fort Pierce
+poll_secs = 150
+
+[fawn]
+station_id = "440"
+station_name = "Homestead"
+poll_secs = 900
+# All 10 FAWN stations within ~200km of KMIA
+station_ids = ["440", "420", "425", "410", "450", "405", "430", "435", "460", "455"]
+# 440=Homestead(35km), 420=Ft.Lauderdale(33km), 425=Wellington(100km),
+# 410=Belle Glade(100km), 450=Immokalee(135km), 405=Clewiston(125km),
+# 430=Ft.Pierce(183km), 435=St.Lucie West(175km), 460=Palmdale(150km),
+# 455=Okeechobee(175km)
+
+[ndbc]
+poll_secs = 1800
+
+[retention]
+# Override default retention days per table. Tables not listed use defaults.
+# event_settlements and market_settlements are always kept permanently.
+# market_snapshots = 30
+# sse_events = 14
+# forward_curves = 30
+# bracket_estimates = 30
+
+[credentials]
+env_path = "/Users/blakebot/.credentials/.env"
+kalshi_key_path = "/Users/blakebot/.credentials/kalshi-prod-private.pem"

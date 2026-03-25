@@ -1,0 +1,512 @@
+{
+  "changepoint_compare": {
+    "bocpd_enabled": {
+      "false_positive_proxy": 627,
+      "fires_layer1": 739,
+      "fires_layer2": 1047,
+      "fires_layer3": 0,
+      "matched_events": 74,
+      "median_latency_minutes": 0.0,
+      "missed_events": 0,
+      "total_events": 74,
+      "total_fires": 1786,
+      "total_obs": 4034
+    },
+    "counts": {
+      "events": 74,
+      "obs_rows": 4034
+    },
+    "cusum_only": {
+      "false_positive_proxy": 627,
+      "fires_layer1": 739,
+      "fires_layer2": 1047,
+      "fires_layer3": 0,
+      "matched_events": 74,
+      "median_latency_minutes": 0.0,
+      "missed_events": 0,
+      "total_events": 74,
+      "total_fires": 1786,
+      "total_obs": 4034
+    },
+    "dates": {
+      "end": null,
+      "start": null
+    },
+    "delta": {
+      "false_positive_proxy": 0,
+      "fires": 0,
+      "median_latency_minutes": 0.0,
+      "missed_events": 0
+    },
+    "station": "KMIA"
+  },
+  "date_window": {
+    "dates": [
+      "2026-03-05",
+      "2026-03-06",
+      "2026-03-07",
+      "2026-03-08",
+      "2026-03-09",
+      "2026-03-10",
+      "2026-03-11",
+      "2026-03-12",
+      "2026-03-13",
+      "2026-03-14",
+      "2026-03-15",
+      "2026-03-16",
+      "2026-03-17",
+      "2026-03-18",
+      "2026-03-19",
+      "2026-03-20"
+    ],
+    "end": null,
+    "resolved_dates": 16,
+    "start": null
+  },
+  "replay_summary": {
+    "adaptive_lookback_days": 2,
+    "avg_contracts": null,
+    "avg_edge_cents": null,
+    "avg_expected_value_cents": null,
+    "avg_pnl_per_trade_cents": null,
+    "base_max_trades_per_ticker": 3,
+    "base_min_reentry_minutes": 90,
+    "brier_all_estimates": 0.161996,
+    "contracts": 0,
+    "cycles": 7,
+    "dates": [
+      "2026-03-05",
+      "2026-03-06",
+      "2026-03-07",
+      "2026-03-08",
+      "2026-03-09",
+      "2026-03-10",
+      "2026-03-11",
+      "2026-03-12",
+      "2026-03-13",
+      "2026-03-14",
+      "2026-03-15",
+      "2026-03-16",
+      "2026-03-17",
+      "2026-03-18",
+      "2026-03-19",
+      "2026-03-20"
+    ],
+    "day_breakdown": [
+      {
+        "brier": 0.0,
+        "contracts": 0,
+        "date": "2026-03-14",
+        "estimates": 1,
+        "expected_value_cents": 0.0,
+        "logloss": 1e-06,
+        "realized_pnl_cents": 0.0,
+        "remaining_high_mae": 0.014,
+        "remaining_high_rmse": 0.014,
+        "remaining_low_mae": 0.083,
+        "remaining_low_rmse": 0.083,
+        "trades": 0,
+        "win_rate": null,
+        "wins": 0
+      },
+      {
+        "brier": null,
+        "contracts": 0,
+        "date": "2026-03-15",
+        "estimates": 0,
+        "expected_value_cents": 0.0,
+        "logloss": null,
+        "realized_pnl_cents": 0.0,
+        "remaining_high_mae": null,
+        "remaining_high_rmse": null,
+        "remaining_low_mae": null,
+        "remaining_low_rmse": null,
+        "trades": 0,
+        "win_rate": null,
+        "wins": 0
+      },
+      {
+        "brier": 0.209005,
+        "contracts": 0,
+        "date": "2026-03-16",
+        "estimates": 12,
+        "expected_value_cents": 0.0,
+        "logloss": 1.472733,
+        "realized_pnl_cents": 0.0,
+        "remaining_high_mae": 0.146,
+        "remaining_high_rmse": 0.146,
+        "remaining_low_mae": 4.475,
+        "remaining_low_rmse": 4.475,
+        "trades": 0,
+        "win_rate": null,
+        "wins": 0
+      },
+      {
+        "brier": 0.072244,
+        "contracts": 0,
+        "date": "2026-03-17",
+        "estimates": 12,
+        "expected_value_cents": 0.0,
+        "logloss": 0.249847,
+        "realized_pnl_cents": 0.0,
+        "remaining_high_mae": 1.331,
+        "remaining_high_rmse": 1.331,
+        "remaining_low_mae": 1.091,
+        "remaining_low_rmse": 1.091,
+        "trades": 0,
+        "win_rate": null,
+        "wins": 0
+      },
+      {
+        "brier": 0.034744,
+        "contracts": 0,
+        "date": "2026-03-18",
+        "estimates": 12,
+        "expected_value_cents": 0.0,
+        "logloss": 0.108207,
+        "realized_pnl_cents": 0.0,
+        "remaining_high_mae": 0.582,
+        "remaining_high_rmse": 0.582,
+        "remaining_low_mae": 0.104,
+        "remaining_low_rmse": 0.104,
+        "trades": 0,
+        "win_rate": null,
+        "wins": 0
+      },
+      {
+        "brier": 0.293842,
+        "contracts": 0,
+        "date": "2026-03-19",
+        "estimates": 12,
+        "expected_value_cents": 0.0,
+        "logloss": 1.407264,
+        "realized_pnl_cents": 0.0,
+        "remaining_high_mae": null,
+        "remaining_high_rmse": null,
+        "remaining_low_mae": null,
+        "remaining_low_rmse": null,
+        "trades": 0,
+        "win_rate": null,
+        "wins": 0
+      },
+      {
+        "brier": 0.265294,
+        "contracts": 0,
+        "date": "2026-03-20",
+        "estimates": 6,
+        "expected_value_cents": 0.0,
+        "logloss": 1.806652,
+        "realized_pnl_cents": 0.0,
+        "remaining_high_mae": null,
+        "remaining_high_rmse": null,
+        "remaining_low_mae": null,
+        "remaining_low_rmse": null,
+        "trades": 0,
+        "win_rate": null,
+        "wins": 0
+      }
+    ],
+    "days": 16,
+    "estimates": 61,
+    "expected_minus_realized_cents": 0,
+    "expected_value_cents_total": 0,
+    "logloss_all_estimates": 0.903573,
+    "pnl_cents": 0,
+    "pnl_dollars": 0.0,
+    "regime_cuts": [
+      {
+        "market_type": "high",
+        "n": 1,
+        "regime": "advective_cooling",
+        "remaining_crps": 0.4047,
+        "remaining_mae": 0.582,
+        "remaining_rmse": 0.582
+      },
+      {
+        "market_type": "high",
+        "n": 3,
+        "regime": "mixed_uncertain",
+        "remaining_crps": 0.547781,
+        "remaining_mae": 0.497,
+        "remaining_rmse": 0.773105
+      },
+      {
+        "market_type": "low",
+        "n": 1,
+        "regime": "advective_cooling",
+        "remaining_crps": 0.244957,
+        "remaining_mae": 0.104,
+        "remaining_rmse": 0.104
+      },
+      {
+        "market_type": "low",
+        "n": 3,
+        "regime": "mixed_uncertain",
+        "remaining_crps": 1.069438,
+        "remaining_mae": 1.883,
+        "remaining_rmse": 2.659749
+      }
+    ],
+    "reliability_bins": [
+      {
+        "bin": 0,
+        "calibration_gap": -0.104003,
+        "empirical_yes": 0.114286,
+        "hi": 0.1,
+        "lo": 0.0,
+        "mean_prob": 0.010283,
+        "n": 35
+      },
+      {
+        "bin": 1,
+        "calibration_gap": 0.14346,
+        "empirical_yes": 0.0,
+        "hi": 0.2,
+        "lo": 0.1,
+        "mean_prob": 0.14346,
+        "n": 5
+      },
+      {
+        "bin": 2,
+        "calibration_gap": -0.008,
+        "empirical_yes": 0.25,
+        "hi": 0.3,
+        "lo": 0.2,
+        "mean_prob": 0.242,
+        "n": 4
+      },
+      {
+        "bin": 4,
+        "calibration_gap": -0.0816,
+        "empirical_yes": 0.5,
+        "hi": 0.5,
+        "lo": 0.4,
+        "mean_prob": 0.4184,
+        "n": 4
+      },
+      {
+        "bin": 5,
+        "calibration_gap": 0.0395,
+        "empirical_yes": 0.5,
+        "hi": 0.6,
+        "lo": 0.5,
+        "mean_prob": 0.5395,
+        "n": 2
+      },
+      {
+        "bin": 7,
+        "calibration_gap": 0.7222,
+        "empirical_yes": 0.0,
+        "hi": 0.8,
+        "lo": 0.7,
+        "mean_prob": 0.7222,
+        "n": 2
+      },
+      {
+        "bin": 8,
+        "calibration_gap": 0.8198,
+        "empirical_yes": 0.0,
+        "hi": 0.9,
+        "lo": 0.8,
+        "mean_prob": 0.8198,
+        "n": 1
+      },
+      {
+        "bin": 9,
+        "calibration_gap": 0.46885,
+        "empirical_yes": 0.5,
+        "hi": 1.0,
+        "lo": 0.9,
+        "mean_prob": 0.96885,
+        "n": 2
+      }
+    ],
+    "remaining_target_metrics": {
+      "crps_method": "quantile-grid approximation over remaining-target transformed predictive distribution",
+      "high": {
+        "crps": 0.512011,
+        "mae": 0.51825,
+        "n": 4,
+        "rmse": 0.730034
+      },
+      "low": {
+        "crps": 0.863318,
+        "mae": 1.43825,
+        "n": 4,
+        "rmse": 2.303997
+      }
+    },
+    "sharpness_mean_abs_p_minus_0_5": 0.401129,
+    "station": "KMIA",
+    "trade_brier": null,
+    "trade_quality_cuts": {
+      "by_confidence_bucket": [],
+      "by_market_type": [],
+      "by_regime": []
+    },
+    "trades": 0,
+    "ttl_cuts": {
+      "12-24h": {
+        "brier": 0.199493,
+        "logloss": 1.024175,
+        "n": 30,
+        "reliability_bins": [
+          {
+            "bin": 0,
+            "calibration_gap": -0.091536,
+            "empirical_yes": 0.136364,
+            "hi": 0.2,
+            "lo": 0.0,
+            "mean_prob": 0.044827,
+            "n": 22
+          },
+          {
+            "bin": 1,
+            "calibration_gap": 0.224667,
+            "empirical_yes": 0.0,
+            "hi": 0.4,
+            "lo": 0.2,
+            "mean_prob": 0.224667,
+            "n": 3
+          },
+          {
+            "bin": 2,
+            "calibration_gap": -0.5782,
+            "empirical_yes": 1.0,
+            "hi": 0.6,
+            "lo": 0.4,
+            "mean_prob": 0.4218,
+            "n": 2
+          },
+          {
+            "bin": 3,
+            "calibration_gap": 0.7384,
+            "empirical_yes": 0.0,
+            "hi": 0.8,
+            "lo": 0.6,
+            "mean_prob": 0.7384,
+            "n": 1
+          },
+          {
+            "bin": 4,
+            "calibration_gap": 0.87875,
+            "empirical_yes": 0.0,
+            "hi": 1.0,
+            "lo": 0.8,
+            "mean_prob": 0.87875,
+            "n": 2
+          }
+        ],
+        "remaining_targets": {
+          "remaining_high_crps": 0.870629,
+          "remaining_high_mae": 1.331,
+          "remaining_high_n": 1,
+          "remaining_high_rmse": 1.331,
+          "remaining_low_crps": 0.943443,
+          "remaining_low_mae": 1.091,
+          "remaining_low_n": 1,
+          "remaining_low_rmse": 1.091
+        }
+      },
+      "6-12h": {
+        "brier": 0.116999,
+        "logloss": 0.758851,
+        "n": 25,
+        "reliability_bins": [
+          {
+            "bin": 0,
+            "calibration_gap": -0.0505,
+            "empirical_yes": 0.055556,
+            "hi": 0.2,
+            "lo": 0.0,
+            "mean_prob": 0.005056,
+            "n": 18
+          },
+          {
+            "bin": 1,
+            "calibration_gap": -0.706,
+            "empirical_yes": 1.0,
+            "hi": 0.4,
+            "lo": 0.2,
+            "mean_prob": 0.294,
+            "n": 1
+          },
+          {
+            "bin": 2,
+            "calibration_gap": 0.22725,
+            "empirical_yes": 0.25,
+            "hi": 0.6,
+            "lo": 0.4,
+            "mean_prob": 0.47725,
+            "n": 4
+          },
+          {
+            "bin": 3,
+            "calibration_gap": 0.706,
+            "empirical_yes": 0.0,
+            "hi": 0.8,
+            "lo": 0.6,
+            "mean_prob": 0.706,
+            "n": 1
+          },
+          {
+            "bin": 4,
+            "calibration_gap": 0.0,
+            "empirical_yes": 1.0,
+            "hi": 1.0,
+            "lo": 0.8,
+            "mean_prob": 1.0,
+            "n": 1
+          }
+        ],
+        "remaining_targets": {
+          "remaining_high_crps": 0.392471,
+          "remaining_high_mae": 0.247333,
+          "remaining_high_n": 3,
+          "remaining_high_rmse": 0.346524,
+          "remaining_low_crps": 0.83661,
+          "remaining_low_mae": 1.554,
+          "remaining_low_n": 3,
+          "remaining_low_rmse": 2.584784
+        }
+      }
+    },
+    "win_rate": null,
+    "wins": 0,
+    "worst_day_diagnostics": {
+      "highest_brier_day": {
+        "brier": 0.293842,
+        "contracts": 0,
+        "date": "2026-03-19",
+        "estimates": 12,
+        "expected_value_cents": 0.0,
+        "logloss": 1.407264,
+        "realized_pnl_cents": 0.0,
+        "remaining_high_mae": null,
+        "remaining_high_rmse": null,
+        "remaining_low_mae": null,
+        "remaining_low_rmse": null,
+        "trades": 0,
+        "win_rate": null,
+        "wins": 0
+      },
+      "lowest_realized_pnl_day": {
+        "brier": 0.0,
+        "contracts": 0,
+        "date": "2026-03-14",
+        "estimates": 1,
+        "expected_value_cents": 0.0,
+        "logloss": 1e-06,
+        "realized_pnl_cents": 0.0,
+        "remaining_high_mae": 0.014,
+        "remaining_high_rmse": 0.014,
+        "remaining_low_mae": 0.083,
+        "remaining_low_rmse": 0.083,
+        "trades": 0,
+        "win_rate": null,
+        "wins": 0
+      }
+    }
+  },
+  "station": "KMIA"
+}

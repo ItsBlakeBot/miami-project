@@ -1,0 +1,59 @@
+{
+  "station": "KMIA",
+  "target_date": "2026-03-22",
+  "cli_settlements_f": {
+    "high": 81.0,
+    "low": 59.0
+  },
+  "regimes_active": [
+    "overnight_residual_cooling",
+    "delayed_diurnal_rebound_with_afternoon_high_lock",
+    "evening_cooling_reversion"
+  ],
+  "path_class": "normal_diurnal_with_afternoon_high_lock",
+  "consensus": {
+    "high": {
+      "forecast_f": 79.8,
+      "std_f": 1.7
+    },
+    "low": {
+      "forecast_f": 59.7,
+      "std_f": 2.2
+    }
+  },
+  "paper_trading": {
+    "high": {
+      "trades": 13,
+      "pnl": -1.0,
+      "yes_pnl": -60.0,
+      "no_pnl": 59.0,
+      "wins": 3,
+      "losses": 10
+    },
+    "low": {
+      "trades": 17,
+      "pnl": 258.0,
+      "yes_pnl": 17.0,
+      "no_pnl": 241.0,
+      "wins": 5,
+      "losses": 12
+    }
+  },
+  "stale_mark_notes": 35990,
+  "priority_actions": [
+    "Tighten high-side entries after the marine cap is established.",
+    "Keep openmeteo trust above wethr for now.",
+    "Refine regime naming/transition logic before catalog expansion.",
+    "Audit stale market-data monitoring noise.",
+    "Hold calibration threshold changes until states are visible in review artifacts."
+  ],
+  "hold_items": [
+    "new live regime promotion",
+    "LETKF tuning changes",
+    "EMOS window change"
+  ],
+  "dismissed_items": [
+    "immediate promotion of HDP regime 5",
+    "any direct production mutation from review step"
+  ]
+}

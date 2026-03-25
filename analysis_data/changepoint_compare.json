@@ -1,0 +1,41 @@
+{
+  "bocpd_enabled": {
+    "false_positive_proxy": 641,
+    "fires_layer1": 538,
+    "fires_layer2": 1030,
+    "fires_layer3": 0,
+    "matched_events": 64,
+    "median_latency_minutes": 0.0,
+    "missed_events": 0,
+    "total_events": 64,
+    "total_fires": 1568,
+    "total_obs": 3729
+  },
+  "counts": {
+    "events": 64,
+    "obs_rows": 3729
+  },
+  "cusum_only": {
+    "false_positive_proxy": 641,
+    "fires_layer1": 538,
+    "fires_layer2": 1030,
+    "fires_layer3": 0,
+    "matched_events": 64,
+    "median_latency_minutes": 0.0,
+    "missed_events": 0,
+    "total_events": 64,
+    "total_fires": 1568,
+    "total_obs": 3729
+  },
+  "dates": {
+    "end": null,
+    "start": null
+  },
+  "delta": {
+    "false_positive_proxy": 0,
+    "fires": 0,
+    "median_latency_minutes": 0.0,
+    "missed_events": 0
+  },
+  "station": "KMIA"
+}

@@ -1,0 +1,54 @@
+[project]
+name = "miami-collector"
+version = "2.0.0"
+description = "DS3M v2: Miami (KMIA) weather trading system with Mamba + NSF + DPF on Kalshi"
+requires-python = ">=3.13"
+dependencies = [
+    # Data collection
+    "aiohttp>=3.11",
+    "websockets>=14.0",
+    "cryptography>=44.0",
+    "python-dotenv>=1.0",
+    "numpy>=2.0",
+    "pyyaml>=6.0",
+    # DS3M inference
+    "torch>=2.4",
+    "scipy>=1.14",
+    # Dashboard
+    "fastapi>=0.115",
+    "uvicorn>=0.32",
+    "jinja2>=3.1",
+    "sse-starlette>=2.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.24"]
+cuda = ["torch>=2.4+cu124"]
+
+[project.scripts]
+miami-collector = "collector.entrypoints:cli_entry"
+miami-prune-db = "collector.prune:main"
+miami-extract-review-labels = "analyzer.review_labels:main"
+miami-build-training-snapshots = "analyzer.build_training_snapshots:main"
+miami-audit-archive = "analyzer.archive_audit:main"
+miami-backtest-residual-bot = "analyzer.backtest_residual_bot:main"
+miami-backtest-replay = "analyzer.replay_remaining_backtest:main"
+miami-train-skf = "analyzer.train_skf:main"
+miami-hdp-shadow = "analyzer.hdp_regime_discovery:main"
+miami-calibrate = "analyzer.post_settlement_calibrator:main"
+miami-daily-post-settlement = "analyzer.daily_post_settlement:main"
+miami-paper-trader = "trading.paper_trader:main"
+miami-inference = "engine.orchestrator:main"
+# DS3M v2 entrypoints
+miami-ds3m = "engine.ds3m.orchestrator_v2:main"
+miami-dashboard = "dashboard:run_dashboard"
+
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+[tool.setuptools.packages.find]
+where = ["src"]
