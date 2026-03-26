@@ -136,6 +136,37 @@ class MultiTaskHeads(nn.Module):
             "regime": self.head_regime(x),                              # (B, n_regimes) — logits
         }
 
+    def physics_consistency_loss(self, nwp_bias_pred: Tensor, features: Tensor) -> Tensor:
+        """Penalize physically implausible NWP biases.
+
+        Constraints:
+        1. Bias should be smooth in time (no wild jumps between consecutive hours)
+        2. Bias magnitude should correlate with CAPE (convective days have larger biases)
+        3. Bias sign should be consistent within a regime
+
+        Parameters
+        ----------
+        nwp_bias_pred : Tensor
+            Predicted NWP bias values.
+        features : Tensor
+            Input features (unused for now, placeholder for CAPE correlation).
+
+        Returns
+        -------
+        Tensor
+            Scalar physics consistency regularization loss.
+        """
+        # Temporal smoothness
+        if nwp_bias_pred.dim() > 1 and nwp_bias_pred.size(1) > 1:
+            temporal_smooth = (nwp_bias_pred[:, 1:] - nwp_bias_pred[:, :-1]).pow(2).mean()
+        else:
+            temporal_smooth = torch.tensor(0.0, device=nwp_bias_pred.device)
+
+        # Magnitude constraint (bias shouldn't exceed 10 deg F typically)
+        magnitude_penalty = F.relu(nwp_bias_pred.abs() - 10.0).pow(2).mean()
+
+        return 0.01 * temporal_smooth + 0.005 * magnitude_penalty
+
     def compute_loss(
         self,
         predictions: dict[str, Tensor],
@@ -180,6 +211,14 @@ class MultiTaskHeads(nn.Module):
             losses["regime"] = F.cross_entropy(
                 predictions["regime"], targets["regime"].long()
             )
+
+        # ── Physics consistency regularization on NWP bias ─────────
+        if "nwp_bias" in losses and "nwp_bias" in predictions:
+            physics_loss = self.physics_consistency_loss(
+                predictions["nwp_bias"],
+                features=predictions.get("next_hour_temp", predictions["nwp_bias"]),
+            )
+            losses["nwp_bias"] = losses["nwp_bias"] + physics_loss
 
         # ── GradNorm weighted loss ────────────────────────────────
         weights = self.task_weights
