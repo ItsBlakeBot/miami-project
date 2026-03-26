@@ -173,7 +173,7 @@ class SelectiveSSMBlock(nn.Module):
         outputs = []
 
         for t in range(seq_len):
-            dt_t = dt[:, t].unsqueeze(-1).unsqueeze(-1)
+            dt_t = dt[:, t].unsqueeze(-1)  # (B, d_inner, 1) — broadcasts with A (d_inner, d_state)
             A_bar_t = torch.exp(A.unsqueeze(0) * dt_t)
             B_t = B[:, t, :]
             C_t = C[:, t, :]

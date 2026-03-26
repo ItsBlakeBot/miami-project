@@ -33,7 +33,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
-from torch.cuda.amp import GradScaler, autocast
+from torch.cuda.amp import autocast
 
 logging.basicConfig(
     level=logging.INFO,
@@ -255,11 +255,11 @@ def train_weather_phase0_byol(model, dataset, device, bf16, config):
     batch_size = config.get('batch_size', 512)
     lr = config.get('byol_lr', 3e-4)
 
+    from engine.ds3m.multi_res_dataset import _collate_multi_res
     optimizer = get_optimizer(model, lr=lr, use_muon=config.get('use_muon', True))
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=True,
-                       num_workers=4, pin_memory=True, drop_last=True)
-
-    augment = WeatherAugmentation()
+                       num_workers=4, pin_memory=True, drop_last=True,
+                       collate_fn=_collate_multi_res)
 
     for epoch in range(epochs):
         model.train()
@@ -268,14 +268,25 @@ def train_weather_phase0_byol(model, dataset, device, bf16, config):
         t0 = time.time()
 
         for batch in loader:
-            # Create two augmented views
-            view1 = augment(batch)
-            view2 = augment(batch)
-
             with torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=bf16):
-                # Forward both views through encoder
-                z1 = model.encode(view1['features'].to(device))
-                z2 = model.encode(view2['features'].to(device))
+                # Forward pass to get temporal representation
+                out1 = model(
+                    batch['fine'].to(device),
+                    batch['medium'].to(device),
+                    batch['coarse'].to(device),
+                    feature_masks={k: v.to(device) for k, v in batch['feature_masks'].items()},
+                )
+                z1 = out1['temporal_state']
+
+                # Second view with noise augmentation
+                noise_scale = 0.1
+                out2 = model(
+                    batch['fine'].to(device) + torch.randn_like(batch['fine'].to(device)) * noise_scale,
+                    batch['medium'].to(device) + torch.randn_like(batch['medium'].to(device)) * noise_scale,
+                    batch['coarse'].to(device) + torch.randn_like(batch['coarse'].to(device)) * noise_scale,
+                    feature_masks={k: v.to(device) for k, v in batch['feature_masks'].items()},
+                )
+                z2 = out2['temporal_state']
 
                 # BYOL loss (cosine similarity)
                 loss = 2 - 2 * F.cosine_similarity(z1, z2.detach(), dim=-1).mean()
@@ -318,10 +329,11 @@ def train_weather_phase1_supervised(model, dataset, device, bf16, config, seed=4
     warmup_steps = config.get('warmup_steps', 2000)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
 
+    from engine.ds3m.multi_res_dataset import _collate_multi_res
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=True,
-                       num_workers=4, pin_memory=True, drop_last=True)
+                       num_workers=4, pin_memory=True, drop_last=True,
+                       collate_fn=_collate_multi_res)
 
-    augment = WeatherAugmentation()
     best_val_loss = float('inf')
 
     for epoch in range(epochs):
@@ -332,17 +344,21 @@ def train_weather_phase1_supervised(model, dataset, device, bf16, config, seed=4
         t0 = time.time()
 
         for batch in loader:
-            # Apply augmentations
-            batch = augment(batch)
-
             with torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=bf16):
-                predictions, bracket_probs, regime_post, particle_state, condition = \
-                    model(batch['fine'].to(device), batch['medium'].to(device),
-                          batch['coarse'].to(device), batch['station_features'].to(device),
-                          batch['feature_masks'])
+                outputs = model(
+                    batch['fine'].to(device),
+                    batch['medium'].to(device),
+                    batch['coarse'].to(device),
+                    feature_masks={k: v.to(device) for k, v in batch['feature_masks'].items()},
+                )
 
-                loss, per_task = model.compute_loss(predictions, batch['targets'],
-                                                     bracket_probs, condition)
+                targets_device = {k: v.to(device) for k, v in batch['targets'].items()}
+                target_temp = targets_device.get('daily_max')
+                if target_temp is not None:
+                    target_temp = target_temp.unsqueeze(-1)  # (B,) -> (B, 1)
+                loss_dict = model.compute_loss(outputs, targets_device, target_temp=target_temp)
+                loss = loss_dict['total_loss']
+                per_task = {k: v.item() for k, v in loss_dict.items() if k != 'total_loss'}
 
             optimizer.zero_grad()
             loss.backward()
@@ -386,9 +402,11 @@ def train_weather_phase2_flow(model, dataset, device, bf16, config, seed=42):
         if 'flow_matching' not in name:
             param.requires_grad = False
 
+    from engine.ds3m.multi_res_dataset import _collate_multi_res
     optimizer = get_optimizer(model, lr=lr, use_muon=False)  # AdamW for flow
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=True,
-                       num_workers=4, pin_memory=True, drop_last=True)
+                       num_workers=4, pin_memory=True, drop_last=True,
+                       collate_fn=_collate_multi_res)
 
     for epoch in range(epochs):
         model.train()
@@ -398,13 +416,16 @@ def train_weather_phase2_flow(model, dataset, device, bf16, config, seed=42):
 
         for batch in loader:
             with torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=bf16):
-                _, _, regime_post, particle_state, condition = \
-                    model(batch['fine'].to(device), batch['medium'].to(device),
-                          batch['coarse'].to(device), batch['station_features'].to(device),
-                          batch['feature_masks'])
+                outputs = model(
+                    batch['fine'].to(device),
+                    batch['medium'].to(device),
+                    batch['coarse'].to(device),
+                    feature_masks={k: v.to(device) for k, v in batch['feature_masks'].items()},
+                )
 
-                target_temp = batch['targets']['daily_max'].to(device)
-                flow_loss = model.flow_matching.training_loss(condition, target_temp)
+                target_temp = batch['targets']['daily_max'].to(device).unsqueeze(-1)
+                flow_result = model.flow_matching.training_loss(outputs['condition'], target_temp)
+                flow_loss = flow_result['loss'] if isinstance(flow_result, dict) else flow_result
 
             optimizer.zero_grad()
             flow_loss.backward()
@@ -583,16 +604,20 @@ def main():
         log.info("Loading Weather Brain v3.1 architecture...")
 
         # Import weather brain
-        sys.path.insert(0, os.path.dirname(__file__) + '/src')
+        sys.path.insert(0, str(Path(__file__).parent / 'src'))
         from engine.ds3m.weather_brain_v3 import WeatherBrainV3, WeatherBrainV3Ensemble
         from engine.ds3m.wb3_config import WB3Config
+        from engine.ds3m.multi_res_dataset import MultiResolutionWeatherDataset, build_weather_dataloaders
 
         wb_config = WB3Config()
 
         # Build dataset
         log.info(f"Building weather training dataset from {args.db}...")
-        # TODO: Wire up IEMPretrainingDataset with multi-resolution support
-        # dataset = build_weather_dataset(args.db, split='train')
+        train_loader, val_loader = build_weather_dataloaders(
+            db_path=args.db,
+            batch_size=args.batch_size,
+            num_workers=4,
+        )
 
         # Train ensemble
         trained_models = []
@@ -611,16 +636,16 @@ def main():
             log.info(f"Parameters: {total_params:,}")
 
             # Phase 0: BYOL
-            # train_weather_phase0_byol(model, dataset, device, bf16, config)
+            train_weather_phase0_byol(model, train_loader.dataset, device, bf16, config)
 
             # Phase 1: Supervised
-            # train_weather_phase1_supervised(model, dataset, device, bf16, config, seed=seed)
+            train_weather_phase1_supervised(model, train_loader.dataset, device, bf16, config, seed=seed)
 
             # Phase 2: Flow Matching
-            # train_weather_phase2_flow(model, dataset, device, bf16, config, seed=seed)
+            train_weather_phase2_flow(model, train_loader.dataset, device, bf16, config, seed=seed)
 
             # Phase 3: SWA + EMA
-            # train_weather_swa_ema(model, seed=seed)
+            train_weather_swa_ema(model, seed=seed)
 
             trained_models.append(model)
             log.info(f"  Model {i+1} complete.")
@@ -634,7 +659,7 @@ def main():
     if args.phase in ('all', 'trading'):
         log.info("\nLoading Trading Brain v2.2 architecture...")
 
-        sys.path.insert(0, os.path.dirname(__file__) + '/../weather-trader/src')
+        sys.path.insert(0, str(Path(__file__).parent.parent / 'weather-trader' / 'src'))
         from model.trading_brain_v2 import TradingBrainV2, create_trading_brain_v2
 
         model = create_trading_brain_v2().to(device)

@@ -39,7 +39,7 @@ class MambaBranchConfig:
 class FusionConfig:
     """Cross-resolution Mamba-Transformer fusion."""
     d_model: int = 896
-    n_heads: int = 12
+    n_heads: int = 14  # 896 / 14 = 64
     n_layers: int = 4          # 2 Mamba + 2 Transformer, alternating
     d_state: int = 64
     d_conv: int = 4
@@ -53,7 +53,7 @@ class FusionConfig:
 class GraphMambaV3Config:
     """GraphMamba Spatial Encoder v3."""
     d_model: int = 896
-    n_heads: int = 12
+    n_heads: int = 14  # 896 / 14 = 64
     n_graph_layers: int = 12
     n_nodes: int = 47            # 35 FL + 12 expansion
     graph_dropout: float = 0.10

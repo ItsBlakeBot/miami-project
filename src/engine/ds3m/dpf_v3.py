@@ -587,6 +587,7 @@ class DifferentiableParticleFilterV3(nn.Module):
         h_t: Tensor,
         observation: Tensor | None = None,
         k_active: int = 8,
+        regime_posterior: Tensor | None = None,
     ) -> ParticleCloudV3:
         """Full predict -> update -> resample cycle.
 
@@ -600,6 +601,9 @@ class DifferentiableParticleFilterV3(nn.Module):
             Shape (B,) or (B, 1) — observed value (None if no obs).
         k_active : int
             Current number of active regimes.
+        regime_posterior : Tensor or None
+            Shape (B, K) — regime posterior probabilities from HDP module.
+            Used to bias particle regime logits toward the discovered regimes.
 
         Returns
         -------
@@ -615,6 +619,17 @@ class DifferentiableParticleFilterV3(nn.Module):
             regime_logits=regime_proposed,
             log_weights=cloud.log_weights - log_q,
         )
+
+        # 1.5 Condition on regime posterior (soft prior from HDP)
+        if regime_posterior is not None:
+            # Add log-prior from regime posterior to bias particle regime logits
+            # regime_posterior: (B, K), regime_logits: (B, N, K)
+            log_prior = torch.log(regime_posterior.unsqueeze(1).clamp(min=1e-8))
+            cloud = ParticleCloudV3(
+                z=cloud.z,
+                regime_logits=cloud.regime_logits + log_prior,
+                log_weights=cloud.log_weights,
+            )
 
         # 2. Transition
         cloud = self.transition(cloud, h_t, k_active)
@@ -677,6 +692,7 @@ class DifferentiableParticleFilterV3(nn.Module):
             cloud, spatial_state,
             observation=None,
             k_active=self.config.k_regimes,
+            regime_posterior=regime_posterior,
         )
 
         # Return weighted mean of latent state

@@ -400,10 +400,10 @@ class RectifiedFlowMatching(nn.Module):
 
         dt = 1.0 / n_steps
         for i in range(n_steps):
-            t = torch.full(
-                (B * n_samples,), i * dt, device=x.device
-            )
             x_flat = x.reshape(B * n_samples, -1)
+            t = torch.full(
+                (x_flat.shape[0],), i * dt, device=x.device, dtype=x.dtype
+            )
             cond_flat = cond.reshape(B * n_samples, -1)
 
             v = self.velocity_field(x_flat, t, cond_flat)

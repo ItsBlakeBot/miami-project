@@ -207,10 +207,11 @@ class MultiTaskHeads(nn.Module):
                 reduction="batchmean",
             )
 
-        # Regime: cross-entropy classification
+        # Regime: cross-entropy classification (ignore_index=-1 for unknown)
         if "regime" in targets:
             losses["regime"] = F.cross_entropy(
-                predictions["regime"], targets["regime"].long()
+                predictions["regime"], targets["regime"].long(),
+                ignore_index=-1,
             )
 
         # ── Physics consistency regularization on NWP bias ─────────
@@ -224,7 +225,7 @@ class MultiTaskHeads(nn.Module):
         # ── GradNorm weighted loss ────────────────────────────────
         weights = self.task_weights
         task_losses = torch.stack([
-            losses.get(name, torch.tensor(0.0, device=weights.device))
+            losses.get(name, torch.tensor(0.0, device=weights.device, dtype=weights.dtype))
             for name in TASK_NAMES
         ])
 
