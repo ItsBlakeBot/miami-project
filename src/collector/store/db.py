@@ -883,6 +883,35 @@ class Store:
         self.conn.commit()
         return count
 
+    # -- RTMA-RU Observations --
+
+    def insert_rtma_ru_observations(
+        self, obs: list[Any]
+    ) -> int:
+        """Batch insert RTMA-RU observations.
+
+        Accepts list of RTMAObservation dataclass instances.
+        Skips duplicates via UNIQUE(timestamp_utc, lat, lon).
+        """
+        count = 0
+        for o in obs:
+            cur = self.conn.execute(
+                """INSERT OR IGNORE INTO rtma_ru_observations
+                   (timestamp_utc, lat, lon, temperature_2m, dewpoint_2m,
+                    wind_speed_10m, wind_direction_10m, surface_pressure,
+                    wind_gust_10m, cloud_cover_pct, visibility_m)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    o.timestamp_utc, o.lat, o.lon,
+                    o.temperature_2m, o.dewpoint_2m,
+                    o.wind_speed_10m, o.wind_direction_10m, o.surface_pressure,
+                    o.wind_gust_10m, o.cloud_cover_pct, o.visibility_m,
+                ),
+            )
+            count += cur.rowcount
+        self.conn.commit()
+        return count
+
     # -- Query helpers --
 
     def get_nearest_observation(

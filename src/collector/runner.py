@@ -726,6 +726,71 @@ def _now_utc() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Loop 12c: RTMA-RU (Real-Time Mesoscale Analysis - Rapid Update, every 15 min)
+# ---------------------------------------------------------------------------
+
+async def rtma_ru_loop(cfg: Config, store: Store) -> None:
+    """Poll RTMA-RU for analyzed surface fields every 15 minutes.
+
+    RTMA-RU assimilates all real-time observations into a 2.5km grid,
+    providing the best available "what IS the temperature right now" product.
+    15-minute update cycle, ~20 minute latency.
+
+    Writes to rtma_ru_observations table (center + 5x5 spatial grid).
+    """
+    from collector.sources.rtma_ru import fetch_rtma_ru
+
+    interval = 900  # 15 minutes
+    lat = cfg.station.lat
+    lon = cfg.station.lon
+    station = cfg.station.code
+
+    # Align to next :00/:15/:30/:45 boundary + latency buffer
+    while True:
+        try:
+            obs_list = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: fetch_rtma_ru(lat, lon),
+            )
+            if obs_list:
+                count = store.insert_rtma_ru_observations(obs_list)
+                store.log_collection_run("rtma_ru", "ok", count)
+                if count > 0:
+                    store.signal_new_data()
+                    # Find center point for logging
+                    center = min(
+                        obs_list,
+                        key=lambda o: (o.lat - lat) ** 2 + (o.lon - lon) ** 2,
+                    )
+                    temp_f = center.temperature_2m * 9 / 5 + 32 if center.temperature_2m is not None else None
+                    log.info(
+                        "RTMA-RU: %s T=%.1f°F DP=%.1f°C WS=%.1f m/s @ %.0f° P=%.1f hPa (%d pts)",
+                        center.timestamp_utc,
+                        temp_f or 0,
+                        center.dewpoint_2m or 0,
+                        center.wind_speed_10m or 0,
+                        center.wind_direction_10m or 0,
+                        center.surface_pressure or 0,
+                        count,
+                    )
+            else:
+                store.log_collection_run("rtma_ru", "no_data", 0)
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            log.exception("RTMA-RU loop error")
+            store.log_collection_run("rtma_ru", "error", 0)
+
+        # Sleep until next 15-min boundary + 35 min latency buffer
+        now = datetime.now(timezone.utc)
+        next_quarter = now.replace(second=0, microsecond=0)
+        next_quarter += timedelta(minutes=(15 - now.minute % 15))
+        # Add ~35 min for RTMA-RU production latency
+        sleep_secs = max(60, (next_quarter - now).total_seconds())
+        await asyncio.sleep(sleep_secs)
+
+
+# ---------------------------------------------------------------------------
 # Loop 12b: GOES-19 satellite observations (every 10 min)
 # ---------------------------------------------------------------------------
 
@@ -1094,7 +1159,7 @@ async def main(config_path: str = "config.toml") -> None:
         wethr.open(), openmeteo.open(), nws.open(), kalshi_rest.open()
     )
 
-    log.info("All clients initialized. Starting 16 loops (15 collection + DS3M shadow).")
+    log.info("All clients initialized. Starting 17 loops (16 collection + DS3M shadow).")
 
     live = LiveState()
     # Attach to store so any loop can signal new data without
@@ -1113,6 +1178,7 @@ async def main(config_path: str = "config.toml") -> None:
         asyncio.create_task(fawn_loop(cfg, store), name="fawn"),
         asyncio.create_task(hrrr_atmospheric_loop(cfg, store), name="hrrr_atmos"),
         asyncio.create_task(goes_satellite_loop(cfg, store), name="goes_satellite"),
+        asyncio.create_task(rtma_ru_loop(cfg, store), name="rtma_ru"),
         asyncio.create_task(herbie_nwp_loop(cfg, store), name="herbie_nwp"),
         asyncio.create_task(nws_gridpoint_loop(cfg, store, nws), name="nws_gridpoint"),
         asyncio.create_task(scoring_loop(cfg, store), name="scoring"),

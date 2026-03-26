@@ -1,6 +1,6 @@
 """SQLite schema definitions — all CREATE TABLE DDL."""
 
-SCHEMA_VERSION = "14"
+SCHEMA_VERSION = "15"
 
 TABLES = [
     # -- Schema version tracking --
@@ -764,6 +764,28 @@ TABLES = [
         FOREIGN KEY(trade_id) REFERENCES ds3m_paper_trades(id)
     )
     """,
+
+    # -- RTMA-RU observations (15-min analyzed surface fields, 2.5km grid) --
+    # Stores both the KMIA center point and surrounding 5x5 grid for
+    # spatial context (urban heat island, land-sea breeze structure).
+    """
+    CREATE TABLE IF NOT EXISTS rtma_ru_observations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp_utc TEXT NOT NULL,
+        lat REAL NOT NULL,
+        lon REAL NOT NULL,
+        temperature_2m REAL,
+        dewpoint_2m REAL,
+        wind_speed_10m REAL,
+        wind_direction_10m REAL,
+        surface_pressure REAL,
+        wind_gust_10m REAL,
+        cloud_cover_pct REAL,
+        visibility_m REAL,
+        created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        UNIQUE(timestamp_utc, lat, lon)
+    )
+    """,
 ]
 
 VIEWS = [
@@ -851,4 +873,6 @@ INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_ds3m_trades_status ON ds3m_paper_trades(status, station)",
     "CREATE INDEX IF NOT EXISTS idx_ds3m_marks_trade_time ON ds3m_paper_trade_marks(trade_id, mark_time)",
     "CREATE INDEX IF NOT EXISTS idx_ds3m_settlements_ticker ON ds3m_paper_trade_settlements(ticker)",
+    "CREATE INDEX IF NOT EXISTS idx_rtma_ru_time ON rtma_ru_observations(timestamp_utc)",
+    "CREATE INDEX IF NOT EXISTS idx_rtma_ru_point ON rtma_ru_observations(lat, lon, timestamp_utc)",
 ]
