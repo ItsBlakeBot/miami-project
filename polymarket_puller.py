@@ -10,6 +10,7 @@ Stores everything in the miami_collector.db SQLite database.
 import json
 import re
 import sqlite3
+import sys
 import time
 import urllib.request
 import urllib.error
@@ -19,6 +20,13 @@ DB_PATH = "/Users/blakebot/blakebot/miami-project/miami_collector.db"
 GAMMA_API = "https://gamma-api.polymarket.com"
 CLOB_API = "https://clob.polymarket.com"
 RATE_LIMIT_DELAY = 0.55  # ~2 requests/sec with margin
+CHUNK_DAYS = 14  # API max range is ~15 days
+UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+
+
+def log(msg):
+    print(msg)
+    sys.stdout.flush()
 
 
 def api_get(url, retries=3):
@@ -27,18 +35,27 @@ def api_get(url, retries=3):
         try:
             req = urllib.request.Request(url)
             req.add_header("Accept", "application/json")
-            req.add_header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
+            req.add_header("User-Agent", UA)
             with urllib.request.urlopen(req, timeout=30) as resp:
                 data = json.loads(resp.read().decode())
             time.sleep(RATE_LIMIT_DELAY)
             return data
-        except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError) as e:
-            if attempt < retries - 1:
-                wait = 2 ** (attempt + 1)
-                print(f"  [retry {attempt+1}] {e} — waiting {wait}s")
+        except urllib.error.HTTPError as e:
+            if e.code == 429:
+                wait = 5 * (attempt + 1)
+                log(f"  [rate limited] waiting {wait}s...")
                 time.sleep(wait)
+            elif e.code == 400:
+                # Bad request - not retryable (e.g. invalid token)
+                return None
+            elif attempt < retries - 1:
+                time.sleep(2 ** (attempt + 1))
             else:
-                print(f"  [FAILED] {url[:100]}... : {e}")
+                return None
+        except (urllib.error.URLError, json.JSONDecodeError) as e:
+            if attempt < retries - 1:
+                time.sleep(2 ** (attempt + 1))
+            else:
                 return None
 
 
@@ -78,21 +95,21 @@ def init_db(conn):
 
 # --- City extraction ---
 KNOWN_CITIES = [
-    "Miami", "NYC", "New York", "Chicago", "Dallas", "Atlanta", "Houston",
-    "Los Angeles", "LA", "San Francisco", "Denver", "Seattle", "Boston",
-    "Phoenix", "Detroit", "Minneapolis", "Philadelphia", "Washington",
-    "London", "Paris", "Tokyo", "Berlin", "Sydney", "Melbourne",
-    "Toronto", "Montreal", "Vancouver", "Mexico City", "Sao Paulo",
-    "São Paulo", "Buenos Aires", "Mumbai", "Delhi", "Shanghai",
-    "Beijing", "Seoul", "Taipei", "Hong Kong", "Singapore",
-    "Bangkok", "Jakarta", "Shenzhen", "Guangzhou", "Osaka",
-    "Rome", "Madrid", "Barcelona", "Amsterdam", "Stockholm",
-    "Oslo", "Copenhagen", "Helsinki", "Zurich", "Vienna",
-    "Warsaw", "Prague", "Dublin", "Lisbon", "Istanbul",
-    "Cairo", "Lagos", "Johannesburg", "Nairobi", "Cape Town",
-    "Auckland", "Lima", "Bogota", "Santiago", "Riyadh",
-    "Dubai", "Tel Aviv", "Athens", "Brussels", "Hanoi",
-    "Kuala Lumpur",
+    "Miami", "NYC", "New York City", "New York", "Chicago", "Dallas",
+    "Atlanta", "Houston", "Los Angeles", "San Francisco", "Denver",
+    "Seattle", "Boston", "Phoenix", "Detroit", "Minneapolis",
+    "Philadelphia", "Washington", "London", "Paris", "Tokyo", "Berlin",
+    "Sydney", "Melbourne", "Toronto", "Montreal", "Vancouver",
+    "Mexico City", "Sao Paulo", "São Paulo", "Buenos Aires",
+    "Mumbai", "Delhi", "Shanghai", "Beijing", "Seoul", "Taipei",
+    "Hong Kong", "Singapore", "Bangkok", "Jakarta", "Shenzhen",
+    "Guangzhou", "Osaka", "Rome", "Madrid", "Barcelona", "Amsterdam",
+    "Stockholm", "Oslo", "Copenhagen", "Helsinki", "Zurich", "Vienna",
+    "Warsaw", "Prague", "Dublin", "Lisbon", "Istanbul", "Cairo",
+    "Lagos", "Johannesburg", "Nairobi", "Cape Town", "Auckland",
+    "Lima", "Bogota", "Santiago", "Riyadh", "Dubai", "Tel Aviv",
+    "Athens", "Brussels", "Hanoi", "Kuala Lumpur", "Ankara",
+    "Wellington", "Lucknow", "Munich",
 ]
 
 
@@ -102,7 +119,6 @@ def extract_city(question, event_title=""):
     for city in sorted(KNOWN_CITIES, key=len, reverse=True):
         if city.lower() in text.lower():
             return city
-    # Try pattern: "in <City> on"
     m = re.search(r"in\s+([A-Z][a-zA-Z\s]+?)\s+(?:on|be)", text)
     if m:
         return m.group(1).strip()
@@ -120,7 +136,7 @@ def extract_market_type(question, event_title=""):
 
 
 def is_temperature_market(question, description="", event_title=""):
-    """Filter to only temperature markets (not hurricanes, snow, etc)."""
+    """Filter to only temperature markets."""
     text = (question + " " + description + " " + event_title).lower()
     temp_keywords = ["temperature", "temp", "°f", "°c", "degrees"]
     exclude_keywords = ["hurricane", "snow", "rain", "wind", "tornado",
@@ -132,19 +148,18 @@ def is_temperature_market(question, description="", event_title=""):
 
 def discover_markets(conn):
     """Discover all temperature markets from the Gamma API."""
-    print("=" * 60)
-    print("PHASE 1: Discovering temperature markets")
-    print("=" * 60)
+    log("=" * 60)
+    log("PHASE 1: Discovering temperature markets")
+    log("=" * 60)
 
     all_markets = []
     offset = 0
     page_size = 100
     total_events = 0
-    total_skipped = 0
 
     while True:
         url = f"{GAMMA_API}/events?tag_slug=temperature&limit={page_size}&offset={offset}"
-        print(f"\n  Fetching events offset={offset}...")
+        log(f"  Fetching events offset={offset}...")
         events = api_get(url)
 
         if events is None or len(events) == 0:
@@ -162,7 +177,6 @@ def discover_markets(conn):
                 description = mkt.get("description", "")
 
                 if not is_temperature_market(question, description, event_title):
-                    total_skipped += 1
                     continue
 
                 clob_ids = json.loads(mkt.get("clobTokenIds", "[]"))
@@ -193,13 +207,10 @@ def discover_markets(conn):
             break
         offset += page_size
 
-    print(f"\n  Total events scanned: {total_events}")
-    print(f"  Non-temperature skipped: {total_skipped}")
-    print(f"  Temperature markets found: {len(all_markets)}")
+    log(f"\n  Total events scanned: {total_events}")
+    log(f"  Temperature markets found: {len(all_markets)}")
 
     # Store in DB
-    inserted = 0
-    updated = 0
     for m in all_markets:
         try:
             conn.execute("""
@@ -222,29 +233,25 @@ def discover_markets(conn):
                 m["clob_token_yes"], m["clob_token_no"],
                 m["created_at"], m["closed"],
             ))
-            inserted += 1
         except sqlite3.Error as e:
-            print(f"  DB error for market {m['market_id']}: {e}")
+            log(f"  DB error for market {m['market_id']}: {e}")
 
     conn.commit()
-    print(f"  Saved to DB: {inserted} markets")
+    log(f"  Saved to DB: {len(all_markets)} markets")
 
     # Summary by city
     cities = {}
     for m in all_markets:
         c = m["city"]
         cities[c] = cities.get(c, 0) + 1
-    print("\n  Markets by city:")
+    log("\n  Markets by city:")
     for city, count in sorted(cities.items(), key=lambda x: -x[1])[:20]:
-        print(f"    {city}: {count}")
+        log(f"    {city}: {count}")
 
     return all_markets
 
 
-CHUNK_DAYS = 14  # API max range is ~15 days, use 14 for safety
-
-
-def fetch_token_history(token, start_ts, end_ts):
+def fetch_token_history_chunked(token, start_ts, end_ts):
     """Fetch price history for a token, chunking into 14-day windows."""
     history = {}
     chunk_size = CHUNK_DAYS * 86400
@@ -269,21 +276,28 @@ def fetch_token_history(token, start_ts, end_ts):
 
 
 def pull_price_history(conn, markets):
-    """Pull hourly price history for each market."""
-    print("\n" + "=" * 60)
-    print("PHASE 2: Pulling price history")
-    print("=" * 60)
+    """Pull hourly price history for markets that have trading volume."""
+    log("\n" + "=" * 60)
+    log("PHASE 2: Pulling price history")
+    log("=" * 60)
+
+    # Only pull for markets with volume > 0 (saves massive API calls)
+    markets_with_vol = [m for m in markets if m["volume"] > 0]
+    log(f"  Markets with volume > 0: {len(markets_with_vol)} / {len(markets)}")
+
+    # Sort by volume descending so we get the most important ones first
+    markets_with_vol.sort(key=lambda x: -x["volume"])
 
     now_ts = int(time.time())
-    total = len(markets)
+    total = len(markets_with_vol)
     markets_with_data = 0
     total_points = 0
     skipped = 0
+    api_calls = 0
 
-    for i, mkt in enumerate(markets):
+    for i, mkt in enumerate(markets_with_vol):
         market_id = mkt["market_id"]
         token_yes = mkt["clob_token_yes"]
-        token_no = mkt["clob_token_no"]
 
         # Parse creation time for start timestamp
         created = mkt.get("created_at", "")
@@ -296,37 +310,50 @@ def pull_price_history(conn, markets):
         else:
             start_ts = now_ts - 14 * 86400
 
-        # Check if we already have recent data for this market
+        # For closed markets, use resolution date as end (don't scan to now)
+        end_ts = now_ts
+        resolution = mkt.get("resolution_date", "")
+        if mkt.get("closed") and resolution:
+            try:
+                res_dt = datetime.fromisoformat(resolution.replace("Z", "+00:00"))
+                end_ts = min(int(res_dt.timestamp()) + 86400, now_ts)  # +1 day buffer
+            except (ValueError, TypeError):
+                pass
+
+        # Check if we already have data for this market
         existing = conn.execute(
             "SELECT MAX(timestamp) FROM polymarket_price_history WHERE market_id = ?",
             (market_id,)
         ).fetchone()
         if existing and existing[0]:
             try:
-                last_ts = int(datetime.fromisoformat(existing[0].replace("Z", "+00:00")).timestamp())
-                if last_ts > now_ts - 3600:
+                last_ts = int(datetime.fromisoformat(
+                    existing[0].replace("Z", "+00:00")
+                ).timestamp())
+                if last_ts > end_ts - 3600:
                     skipped += 1
                     continue
                 start_ts = max(start_ts, last_ts + 1)
             except (ValueError, TypeError):
                 pass
 
-        if (i + 1) % 100 == 0 or i == 0:
-            print(f"\n  [{i+1}/{total}] Pulling: {mkt['question'][:60]}...")
+        if (i + 1) % 200 == 0 or i == 0:
+            log(f"\n  [{i+1}/{total}] {mkt['question'][:65]}...")
+            log(f"    vol=${mkt['volume']:.0f}, city={mkt['city']}")
 
-        # Pull YES and NO token history with chunking
-        yes_history = fetch_token_history(token_yes, start_ts, now_ts)
-        no_history = fetch_token_history(token_no, start_ts, now_ts)
+        # Pull YES token history only (NO = 1 - YES)
+        yes_history = fetch_token_history_chunked(token_yes, start_ts, end_ts)
 
-        # Merge YES and NO history
-        all_timestamps = sorted(set(list(yes_history.keys()) + list(no_history.keys())))
+        # Count API calls for this market
+        time_span = end_ts - start_ts
+        chunks = max(1, (time_span + CHUNK_DAYS * 86400 - 1) // (CHUNK_DAYS * 86400))
+        api_calls += chunks
 
-        if all_timestamps:
+        if yes_history:
             markets_with_data += 1
             points_inserted = 0
-            for ts_str in all_timestamps:
-                yes_p = yes_history.get(ts_str)
-                no_p = no_history.get(ts_str)
+            for ts_str, yes_p in yes_history.items():
+                no_p = round(1.0 - yes_p, 6) if yes_p is not None else None
                 try:
                     conn.execute("""
                         INSERT OR REPLACE INTO polymarket_price_history
@@ -336,25 +363,27 @@ def pull_price_history(conn, markets):
                     points_inserted += 1
                 except sqlite3.Error:
                     pass
-
             total_points += points_inserted
 
-        # Commit every 100 markets
+        # Commit and report every 100 markets
         if (i + 1) % 100 == 0:
             conn.commit()
-            print(f"    Progress: {markets_with_data} with data, {total_points} total points, {skipped} skipped")
+            log(f"    === Progress: {i+1}/{total} processed, "
+                f"{markets_with_data} with data, {total_points} points, "
+                f"~{api_calls} API calls ===")
 
     conn.commit()
-    print(f"\n  Markets with price data: {markets_with_data}/{total}")
-    print(f"  Total price points stored: {total_points}")
-    print(f"  Skipped (already up to date): {skipped}")
+    log(f"\n  Markets with price data: {markets_with_data}/{total}")
+    log(f"  Total price points stored: {total_points}")
+    log(f"  Skipped (already up to date): {skipped}")
+    log(f"  Approximate API calls made: {api_calls}")
 
 
 def main():
-    print("Polymarket Temperature Market Data Puller")
-    print(f"Database: {DB_PATH}")
-    print(f"Started: {datetime.now().isoformat()}")
-    print()
+    log("Polymarket Temperature Market Data Puller")
+    log(f"Database: {DB_PATH}")
+    log(f"Started: {datetime.now().isoformat()}")
+    log("")
 
     conn = sqlite3.connect(DB_PATH)
     init_db(conn)
@@ -363,7 +392,7 @@ def main():
     markets = discover_markets(conn)
 
     if not markets:
-        print("\nNo temperature markets found!")
+        log("\nNo temperature markets found!")
         conn.close()
         return
 
@@ -371,26 +400,37 @@ def main():
     pull_price_history(conn, markets)
 
     # Final summary
-    print("\n" + "=" * 60)
-    print("FINAL SUMMARY")
-    print("=" * 60)
+    log("\n" + "=" * 60)
+    log("FINAL SUMMARY")
+    log("=" * 60)
     row = conn.execute("SELECT COUNT(*) FROM polymarket_weather_markets").fetchone()
-    print(f"  Total markets in DB: {row[0]}")
+    log(f"  Total markets in DB: {row[0]}")
     row = conn.execute("SELECT COUNT(*) FROM polymarket_price_history").fetchone()
-    print(f"  Total price history rows: {row[0]}")
+    log(f"  Total price history rows: {row[0]}")
     row = conn.execute("SELECT COUNT(DISTINCT market_id) FROM polymarket_price_history").fetchone()
-    print(f"  Markets with price data: {row[0]}")
+    log(f"  Markets with price data: {row[0]}")
+
     row = conn.execute("""
         SELECT city, COUNT(*) as cnt
         FROM polymarket_weather_markets
         GROUP BY city ORDER BY cnt DESC LIMIT 10
     """).fetchall()
-    print("  Top cities:")
+    log("  Top cities:")
     for city, cnt in row:
-        print(f"    {city}: {cnt} markets")
+        log(f"    {city}: {cnt} markets")
+
+    row = conn.execute("""
+        SELECT city, COUNT(DISTINCT ph.market_id) as cnt, SUM(1) as pts
+        FROM polymarket_price_history ph
+        JOIN polymarket_weather_markets m ON ph.market_id = m.market_id
+        GROUP BY city ORDER BY pts DESC LIMIT 10
+    """).fetchall()
+    log("  Top cities by price data:")
+    for city, cnt, pts in row:
+        log(f"    {city}: {cnt} markets, {pts} price points")
 
     conn.close()
-    print(f"\nCompleted: {datetime.now().isoformat()}")
+    log(f"\nCompleted: {datetime.now().isoformat()}")
 
 
 if __name__ == "__main__":

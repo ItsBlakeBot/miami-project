@@ -2,34 +2,29 @@
 """
 Pull hourly candlestick data from Kalshi API for all weather markets.
 Uses the series endpoint: GET /trade-api/v2/series/{series}/markets/{ticker}/candlesticks
+
+Batches DB writes to minimize contention with other processes using the DB.
 """
 
 import sqlite3
 import requests
 import time
-import re
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 DB_PATH = "/Users/blakebot/blakebot/miami-project/miami_collector.db"
 BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
 HEADERS = {"Accept": "application/json"}
 
-# Rate limiting: target 5 req/s => 0.2s between requests
-MIN_DELAY = 0.22
-MAX_CANDLES_PER_REQUEST = 4999  # API limit is 5000
-HOURS_PER_CHUNK = MAX_CANDLES_PER_REQUEST  # 1 candle per hour
+# Rate limiting
+MIN_DELAY = 0.22  # ~4.5 req/s
+HOURS_PER_CHUNK = 4999  # API max is 5000 candles per request
+WRITE_BATCH_SIZE = 200  # Write to DB every N markets
 
 
 def extract_series_ticker(event_ticker: str) -> str:
-    """Extract series ticker from event ticker.
-    KXHIGHDEN-26MAR27 -> KXHIGHDEN
-    KXLOWMIA-25DEC01 -> KXLOWMIA
-    """
     parts = event_ticker.split("-")
-    if parts:
-        return parts[0]
-    return ""
+    return parts[0] if parts else ""
 
 
 def create_tables(conn):
@@ -57,7 +52,6 @@ def create_tables(conn):
 
 
 def parse_dollars(val):
-    """Parse dollar string like '0.1000' to float, return None if missing."""
     if val is None:
         return None
     try:
@@ -66,28 +60,42 @@ def parse_dollars(val):
         return None
 
 
-def fetch_candles(ticker, series_ticker, start_ts, end_ts, session):
-    """Fetch candlesticks for a ticker within a time range."""
-    url = f"{BASE_URL}/series/{series_ticker}/markets/{ticker}/candlesticks"
-    params = {
-        "period_interval": 60,
-        "start_ts": start_ts,
-        "end_ts": end_ts,
-    }
-    r = session.get(url, headers=HEADERS, params=params, timeout=30)
-    return r
+def flush_candles(conn, pending_rows):
+    """Write accumulated candle rows to DB with retry."""
+    if not pending_rows:
+        return 0
+    for attempt in range(10):
+        try:
+            conn.executemany("""
+                INSERT OR IGNORE INTO kalshi_candles_hourly
+                (ticker, timestamp,
+                 yes_bid_open, yes_bid_high, yes_bid_low, yes_bid_close,
+                 yes_ask_open, yes_ask_high, yes_ask_low, yes_ask_close,
+                 price_open, price_high, price_low, price_close, price_mean,
+                 volume, open_interest)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """, pending_rows)
+            conn.commit()
+            return len(pending_rows)
+        except sqlite3.OperationalError as e:
+            if "locked" in str(e) and attempt < 9:
+                wait = min(0.5 * (2 ** attempt), 30)
+                print(f"  DB locked on flush ({len(pending_rows)} rows), retry {attempt+1}/10 in {wait:.1f}s", flush=True)
+                time.sleep(wait)
+            else:
+                raise
+    return 0
 
 
-def process_market(ticker, series_ticker, open_time, close_time, conn, session, stats):
-    """Fetch all hourly candles for a single market."""
-    # Determine time range from market open to close (or now if still active)
+def fetch_market_candles(ticker, series_ticker, open_time, close_time, session, stats):
+    """Fetch all hourly candles for a single market. Returns list of row tuples."""
     now_ts = int(time.time())
 
     if open_time:
         try:
             start_ts = int(datetime.fromisoformat(open_time.replace("Z", "+00:00")).timestamp())
         except Exception:
-            start_ts = now_ts - (30 * 24 * 3600)  # default 30 days back
+            start_ts = now_ts - (30 * 24 * 3600)
     else:
         start_ts = now_ts - (30 * 24 * 3600)
 
@@ -99,39 +107,39 @@ def process_market(ticker, series_ticker, open_time, close_time, conn, session, 
     else:
         end_ts = now_ts
 
-    # Don't go past now
     end_ts = min(end_ts, now_ts)
-
     if start_ts >= end_ts:
-        return
+        return []
 
-    total_candles = 0
+    all_rows = []
     chunk_start = start_ts
     backoff = 3
 
     while chunk_start < end_ts:
         chunk_end = min(chunk_start + HOURS_PER_CHUNK * 3600, end_ts)
 
-        r = fetch_candles(ticker, series_ticker, chunk_start, chunk_end, session)
+        url = f"{BASE_URL}/series/{series_ticker}/markets/{ticker}/candlesticks"
+        params = {"period_interval": 60, "start_ts": chunk_start, "end_ts": chunk_end}
+
+        try:
+            r = session.get(url, headers=HEADERS, params=params, timeout=30)
+        except requests.exceptions.RequestException as e:
+            stats["errors"] += 1
+            return all_rows
         stats["requests"] += 1
 
         if r.status_code == 200:
-            backoff = 3  # reset backoff on success
-            data = r.json()
-            candles = data.get("candlesticks", [])
-
-            rows = []
+            backoff = 3
+            candles = r.json().get("candlesticks", [])
             for c in candles:
                 ts = c.get("end_period_ts")
                 if ts is None:
                     continue
-                ts_str = datetime.utcfromtimestamp(ts).isoformat() + "Z"
-
+                ts_str = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat().replace("+00:00", "Z")
                 price = c.get("price", {})
                 yes_bid = c.get("yes_bid", {})
                 yes_ask = c.get("yes_ask", {})
-
-                rows.append((
+                all_rows.append((
                     ticker, ts_str,
                     parse_dollars(yes_bid.get("open_dollars")),
                     parse_dollars(yes_bid.get("high_dollars")),
@@ -149,97 +157,49 @@ def process_market(ticker, series_ticker, open_time, close_time, conn, session, 
                     parse_dollars(c.get("volume_fp")),
                     parse_dollars(c.get("open_interest_fp")),
                 ))
-
-            if rows:
-                conn.executemany("""
-                    INSERT OR IGNORE INTO kalshi_candles_hourly
-                    (ticker, timestamp,
-                     yes_bid_open, yes_bid_high, yes_bid_low, yes_bid_close,
-                     yes_ask_open, yes_ask_high, yes_ask_low, yes_ask_close,
-                     price_open, price_high, price_low, price_close, price_mean,
-                     volume, open_interest)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                """, rows)
-                conn.commit()
-                total_candles += len(rows)
-
             chunk_start = chunk_end
 
         elif r.status_code == 404:
             stats["skipped_404"] += 1
-            return  # No data for this market
+            return all_rows
 
         elif r.status_code == 429:
             stats["rate_limited"] += 1
-            print(f"  429 rate limited, backing off {backoff}s")
+            print(f"  429 rate limited, backing off {backoff}s", flush=True)
             time.sleep(backoff)
             backoff = min(backoff * 2, 60)
-            continue  # retry same chunk
+            continue
 
         elif r.status_code == 400:
-            # Bad request - skip this market
             stats["skipped_400"] += 1
-            return
+            return all_rows
 
         else:
-            print(f"  Unexpected {r.status_code} for {ticker}: {r.text[:200]}")
             stats["errors"] += 1
-            return
+            return all_rows
 
         time.sleep(MIN_DELAY)
 
-    stats["candles_inserted"] += total_candles
-    if total_candles > 0:
-        stats["markets_with_data"] += 1
-
-
-def fetch_forecast_percentiles(event_ticker, session, conn, stats):
-    """Try to fetch forecast percentile history for an event."""
-    url = f"{BASE_URL}/events/{event_ticker}/forecast/percentile_history"
-    r = session.get(url, headers=HEADERS, timeout=30)
-    stats["requests"] += 1
-
-    if r.status_code == 200:
-        data = r.json()
-        history = data.get("history", data.get("percentile_history", []))
-        if not history:
-            return 0
-
-        rows = []
-        for entry in history:
-            ts = entry.get("timestamp", entry.get("ts", ""))
-            rows.append((
-                event_ticker, ts,
-                entry.get("p5"), entry.get("p10"), entry.get("p25"),
-                entry.get("p50"), entry.get("p75"), entry.get("p90"),
-                entry.get("p95"),
-            ))
-
-        if rows:
-            conn.executemany("""
-                INSERT OR IGNORE INTO kalshi_forecast_percentiles
-                (event_ticker, timestamp, p5, p10, p25, p50, p75, p90, p95)
-                VALUES (?,?,?,?,?,?,?,?,?)
-            """, rows)
-            conn.commit()
-        return len(rows)
-
-    elif r.status_code == 429:
-        stats["rate_limited"] += 1
-        time.sleep(3)
-        return -1  # signal retry
-
-    return 0
+    return all_rows
 
 
 def main():
     test_mode = "--test" in sys.argv
 
-    conn = sqlite3.connect(DB_PATH)
-    create_tables(conn)
+    # Read-only connection for initial queries
+    conn_read = sqlite3.connect(DB_PATH, timeout=30)
+    conn_read.execute("PRAGMA busy_timeout=30000")
+
+    cur = conn_read.cursor()
+
+    # Ensure tables exist
+    conn_write = sqlite3.connect(DB_PATH, timeout=30)
+    conn_write.execute("PRAGMA busy_timeout=30000")
+    conn_write.execute("PRAGMA journal_mode=WAL")
+    create_tables(conn_write)
+    conn_write.close()
 
     # Get all weather markets ordered by close_time DESC
-    cur = conn.cursor()
     cur.execute("""
         SELECT ticker, event_ticker, open_time, close_time
         FROM kalshi_markets
@@ -249,11 +209,16 @@ def main():
     markets = cur.fetchall()
     total = len(markets)
 
+    # Get already-fetched tickers
+    cur.execute("SELECT DISTINCT ticker FROM kalshi_candles_hourly")
+    already_fetched = set(r[0] for r in cur.fetchall())
+    conn_read.close()
+
     if test_mode:
         markets = markets[:5]
-        print(f"TEST MODE: processing {len(markets)} of {total} markets")
+        print(f"TEST MODE: processing {len(markets)} of {total} markets", flush=True)
     else:
-        print(f"Processing {total} weather markets")
+        print(f"Processing {total} weather markets, {len(already_fetched)} already fetched", flush=True)
 
     session = requests.Session()
     stats = {
@@ -262,83 +227,145 @@ def main():
         "markets_with_data": 0,
         "skipped_404": 0,
         "skipped_400": 0,
+        "skipped_existing": 0,
         "rate_limited": 0,
         "errors": 0,
     }
 
     start_time = time.time()
+    pending_rows = []
+    markets_since_flush = 0
 
     for i, (ticker, event_ticker, open_time, close_time) in enumerate(markets):
         series_ticker = extract_series_ticker(event_ticker)
         if not series_ticker:
             continue
 
-        process_market(ticker, series_ticker, open_time, close_time, conn, session, stats)
+        if ticker in already_fetched:
+            stats["skipped_existing"] += 1
+            continue
+
+        rows = fetch_market_candles(ticker, series_ticker, open_time, close_time, session, stats)
+        if rows:
+            pending_rows.extend(rows)
+            stats["markets_with_data"] += 1
+
+        markets_since_flush += 1
+
+        # Flush to DB periodically
+        if markets_since_flush >= WRITE_BATCH_SIZE or (i + 1) == len(markets):
+            if pending_rows:
+                conn_w = sqlite3.connect(DB_PATH, timeout=30)
+                conn_w.execute("PRAGMA busy_timeout=30000")
+                conn_w.execute("PRAGMA journal_mode=WAL")
+                written = flush_candles(conn_w, pending_rows)
+                conn_w.close()
+                stats["candles_inserted"] += written
+                pending_rows = []
+            markets_since_flush = 0
 
         if (i + 1) % 100 == 0 or (test_mode and i == len(markets) - 1):
             elapsed = time.time() - start_time
             rate = stats["requests"] / elapsed if elapsed > 0 else 0
             print(
                 f"[{i+1}/{len(markets)}] "
-                f"candles={stats['candles_inserted']:,} "
-                f"markets_w_data={stats['markets_with_data']} "
-                f"404s={stats['skipped_404']} "
-                f"400s={stats['skipped_400']} "
-                f"429s={stats['rate_limited']} "
-                f"errors={stats['errors']} "
-                f"reqs={stats['requests']} "
+                f"candles={stats['candles_inserted']:,}+{len(pending_rows)} "
+                f"w_data={stats['markets_with_data']} "
+                f"404={stats['skipped_404']} "
+                f"400={stats['skipped_400']} "
+                f"429={stats['rate_limited']} "
+                f"err={stats['errors']} "
+                f"skip={stats['skipped_existing']} "
                 f"rate={rate:.1f}/s "
-                f"elapsed={elapsed:.0f}s"
+                f"{elapsed:.0f}s",
+                flush=True,
             )
 
-    # Now try forecast percentiles for distinct event tickers
-    cur.execute("""
+    # Final flush
+    if pending_rows:
+        conn_w = sqlite3.connect(DB_PATH, timeout=30)
+        conn_w.execute("PRAGMA busy_timeout=30000")
+        conn_w.execute("PRAGMA journal_mode=WAL")
+        written = flush_candles(conn_w, pending_rows)
+        conn_w.close()
+        stats["candles_inserted"] += written
+
+    # Forecast percentiles (tested: returns 404 for all weather events, but try a few)
+    print(f"\n--- Forecast Percentiles ---", flush=True)
+    conn_r2 = sqlite3.connect(DB_PATH, timeout=30)
+    conn_r2.execute("PRAGMA busy_timeout=30000")
+    cur2 = conn_r2.cursor()
+    cur2.execute("""
         SELECT DISTINCT event_ticker
         FROM kalshi_markets
         WHERE ticker LIKE '%HIGH%' OR ticker LIKE '%LOW%'
         ORDER BY event_ticker DESC
     """)
-    event_tickers = [r[0] for r in cur.fetchall()]
+    event_tickers = [r[0] for r in cur2.fetchall()]
+    conn_r2.close()
 
     if test_mode:
         event_tickers = event_tickers[:5]
 
-    print(f"\n--- Forecast Percentiles ---")
-    print(f"Trying {len(event_tickers)} event tickers...")
-
+    print(f"Trying {len(event_tickers)} event tickers...", flush=True)
     forecast_found = 0
     forecast_404 = 0
+
     for i, evt in enumerate(event_tickers):
-        result = fetch_forecast_percentiles(evt, session, conn, stats)
-        if result > 0:
-            forecast_found += 1
-            print(f"  Found {result} percentile records for {evt}")
-        elif result == 0:
+        url = f"{BASE_URL}/events/{evt}/forecast/percentile_history"
+        try:
+            r = session.get(url, headers=HEADERS, timeout=30)
+        except requests.exceptions.RequestException:
+            continue
+        stats["requests"] += 1
+
+        if r.status_code == 200:
+            data = r.json()
+            history = data.get("history", data.get("percentile_history", []))
+            if history:
+                forecast_found += 1
+                print(f"  Found {len(history)} percentile records for {evt}", flush=True)
+                rows = []
+                for entry in history:
+                    ts = entry.get("timestamp", entry.get("ts", ""))
+                    rows.append((evt, ts,
+                                 entry.get("p5"), entry.get("p10"), entry.get("p25"),
+                                 entry.get("p50"), entry.get("p75"), entry.get("p90"),
+                                 entry.get("p95")))
+                if rows:
+                    conn_w = sqlite3.connect(DB_PATH, timeout=30)
+                    conn_w.execute("PRAGMA busy_timeout=30000")
+                    conn_w.execute("PRAGMA journal_mode=WAL")
+                    conn_w.executemany("""
+                        INSERT OR IGNORE INTO kalshi_forecast_percentiles
+                        (event_ticker, timestamp, p5, p10, p25, p50, p75, p90, p95)
+                        VALUES (?,?,?,?,?,?,?,?,?)
+                    """, rows)
+                    conn_w.commit()
+                    conn_w.close()
+        else:
             forecast_404 += 1
-        # result == -1 means retry (429), but we'll just move on
 
         if forecast_404 > 20 and forecast_found == 0:
-            print(f"  No forecast data found after {forecast_404} attempts, stopping.")
+            print(f"  No forecast data after {forecast_404} attempts, stopping.", flush=True)
             break
 
         time.sleep(MIN_DELAY)
-
         if (i + 1) % 100 == 0:
-            print(f"  [{i+1}/{len(event_tickers)}] found={forecast_found} 404s={forecast_404}")
+            print(f"  [{i+1}/{len(event_tickers)}] found={forecast_found} 404s={forecast_404}", flush=True)
 
     elapsed = time.time() - start_time
-    print(f"\n=== DONE ===")
-    print(f"Elapsed: {elapsed:.0f}s")
-    print(f"Total requests: {stats['requests']}")
-    print(f"Candles inserted: {stats['candles_inserted']:,}")
-    print(f"Markets with candle data: {stats['markets_with_data']}")
-    print(f"Skipped (404): {stats['skipped_404']}")
-    print(f"Skipped (400): {stats['skipped_400']}")
-    print(f"Rate limited (429): {stats['rate_limited']}")
-    print(f"Errors: {stats['errors']}")
-    print(f"Forecast events with data: {forecast_found}")
-
-    conn.close()
+    print(f"\n=== DONE ===", flush=True)
+    print(f"Elapsed: {elapsed:.0f}s", flush=True)
+    print(f"Total requests: {stats['requests']}", flush=True)
+    print(f"Candles inserted: {stats['candles_inserted']:,}", flush=True)
+    print(f"Markets with data: {stats['markets_with_data']}", flush=True)
+    print(f"Skipped existing: {stats['skipped_existing']}", flush=True)
+    print(f"Skipped 404: {stats['skipped_404']}", flush=True)
+    print(f"Skipped 400: {stats['skipped_400']}", flush=True)
+    print(f"Rate limited 429: {stats['rate_limited']}", flush=True)
+    print(f"Errors: {stats['errors']}", flush=True)
+    print(f"Forecast events with data: {forecast_found}", flush=True)
 
 
 if __name__ == "__main__":
