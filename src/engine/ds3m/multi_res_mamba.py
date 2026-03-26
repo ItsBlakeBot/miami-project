@@ -133,10 +133,10 @@ class SelectiveSSMBlock(nn.Module):
         ssm_params = self.x_proj(x_conv)
         B = ssm_params[..., :self.d_state]
         C = ssm_params[..., self.d_state:2 * self.d_state]
-        dt = ssm_params[..., -1]
+        dt = ssm_params[..., -1:]  # (batch, seq_len, 1) — keep dim for per-channel bias
 
-        # Discretization step (softplus + bias)
-        dt = F.softplus(dt + self.dt_bias.unsqueeze(0).unsqueeze(0).mean(dim=-1))
+        # Discretization step (softplus + per-channel bias)
+        dt = F.softplus(dt + self.dt_bias.unsqueeze(0).unsqueeze(0))  # (batch, seq_len, d_inner)
 
         # A matrix (negative for stability)
         A = -torch.exp(self.A_log)
@@ -431,8 +431,14 @@ class SSTFusionBlock(nn.Module):
     ) -> Tensor:
         # regime_posterior: (B, regime_dim) -> expand to (B, T, regime_dim)
         # branch_type: (B, T, 1) already per-token, or (B, 1) scalar to expand
+        if regime_posterior is None:
+            # Infer regime_dim from router input size: d_model + regime_dim + 1
+            _regime_dim = self.router[0].in_features - x.size(-1) - 1
+            regime_posterior = torch.zeros(x.size(0), _regime_dim, device=x.device)
         regime_expanded = regime_posterior.unsqueeze(1).expand(-1, x.size(1), -1)
-        if branch_type.dim() == 2:
+        if branch_type is None:
+            branch_expanded = torch.zeros(x.size(0), x.size(1), 1, device=x.device)
+        elif branch_type.dim() == 2:
             # (B, 1) -> (B, T, 1)
             branch_expanded = branch_type.unsqueeze(1).expand(-1, x.size(1), -1)
         else:
@@ -570,7 +576,7 @@ class MultiResolutionMamba(nn.Module):
             d_model=fusion_config.d_model,
             n_heads=fusion_config.n_heads,
             d_state=fusion_config.d_state,
-            regime_dim=getattr(fusion_config, 'regime_dim', 8),
+            regime_dim=fusion_config.regime_dim,
             n_layers=4,
         )
 

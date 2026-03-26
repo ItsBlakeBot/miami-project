@@ -200,8 +200,9 @@ class MultiTaskHeads(nn.Module):
 
         # Bracket probs: cross-entropy (KL divergence from target distribution)
         if "bracket_probs" in targets:
+            log_pred = F.log_softmax(predictions["bracket_probs"], dim=-1)
             losses["bracket_probs"] = F.kl_div(
-                predictions["bracket_probs"].log().clamp(min=-10),
+                log_pred,
                 targets["bracket_probs"],
                 reduction="batchmean",
             )
@@ -260,6 +261,9 @@ class MultiTaskHeads(nn.Module):
         """
         if not shared_params:
             return
+
+        if not hasattr(self, '_initial_losses'):
+            self._initial_losses = {k: v.detach().clone() for k, v in task_losses.items()}
 
         weights = self.task_weights
         n_tasks = N_TASKS

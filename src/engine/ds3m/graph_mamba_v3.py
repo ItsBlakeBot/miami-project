@@ -370,6 +370,7 @@ class SpatialGraphAttentionV3(nn.Module):
             reverse_bearings = (bearings.transpose(0, 1) + 180) % 360
             wind_expanded = wind_dirs.unsqueeze(-1).expand(B, N, N)
             bearing_expanded = reverse_bearings.unsqueeze(0).expand(B, N, N)
+            wind_expanded = wind_expanded % 360.0
             alignment = torch.cos(
                 torch.deg2rad(wind_expanded - bearing_expanded)
             )

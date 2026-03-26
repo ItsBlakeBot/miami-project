@@ -255,19 +255,19 @@ class WeatherBrainV3(nn.Module):
               - 'spatial_state': (B, d_model) graph-enriched representation
         """
         # ── 1. Mask missing features ──────────────────────────────
-        if feature_masks is not None:
-            fine_input = self.feature_mask_fine(
-                fine_input, feature_masks.get("fine", torch.ones_like(fine_input))
-            )
-            medium_input = self.feature_mask_medium(
-                medium_input, feature_masks.get("medium", torch.ones_like(medium_input))
-            )
-            coarse_input = self.feature_mask_coarse(
-                coarse_input, feature_masks.get("coarse", torch.ones_like(coarse_input))
-            )
-        else:
-            # No masking needed — all features available
-            pass
+        # Always apply feature masking — uses default all-ones masks when none provided,
+        # which lets the learned default values still participate in the computation.
+        if feature_masks is None:
+            feature_masks = {}
+        fine_input = self.feature_mask_fine(
+            fine_input, feature_masks.get("fine", torch.ones_like(fine_input))
+        )
+        medium_input = self.feature_mask_medium(
+            medium_input, feature_masks.get("medium", torch.ones_like(medium_input))
+        )
+        coarse_input = self.feature_mask_coarse(
+            coarse_input, feature_masks.get("coarse", torch.ones_like(coarse_input))
+        )
 
         # ── 2. Multi-resolution temporal encoding ─────────────────
         temporal_state = self.multi_res_mamba(
@@ -528,6 +528,14 @@ class WeatherBrainV3Ensemble(nn.Module):
             "condition": condition,
             "member_outputs": all_outputs,
         }
+
+    def state_dict(self, *args, **kwargs):
+        sd = super().state_dict(*args, **kwargs)
+        sd['_ensemble_seeds'] = [
+            getattr(m, 'seed', self.config.ensemble_seed_base + i)
+            for i, m in enumerate(self.members)
+        ]
+        return sd
 
     @torch.no_grad()
     def predict_brackets(

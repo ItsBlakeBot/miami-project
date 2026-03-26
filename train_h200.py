@@ -173,7 +173,7 @@ class WeatherAugmentation:
 
         # 4. Feature noise injection
         if random.random() < self.p_noise:
-            noise = torch.randn_like(features) * self.temp_noise_std * 0.1
+            noise = torch.randn_like(features) * self.temp_noise_std
             features = features + noise * mask
 
         # 5. NWP bias perturbation (scale NWP features ±2-5%)
@@ -635,11 +635,11 @@ def main():
         log.info("\nLoading Trading Brain v2.2 architecture...")
 
         sys.path.insert(0, os.path.dirname(__file__) + '/../weather-trader/src')
-        # from model.trading_brain_v2 import TradingBrainV2, create_trading_brain_v2
+        from model.trading_brain_v2 import TradingBrainV2, create_trading_brain_v2
 
-        # model = create_trading_brain_v2().to(device)
-        # if not args.no_compile:
-        #     model = try_compile(model, device)
+        model = create_trading_brain_v2().to(device)
+        if not args.no_compile:
+            model = try_compile(model, device)
 
         # Phase 4: Decision Mamba
         # train_trading_phase1_decision(model, dataset, device, bf16, config)

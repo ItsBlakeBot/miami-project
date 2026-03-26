@@ -393,8 +393,9 @@ class ObservationV3(nn.Module):
             regime_probs, regime_scales
         )  # (B, N)
 
+        regime_probs = regime_probs.clamp(min=1e-8)
         sigma = (F.softplus(log_sigma_base) * per_particle_scale).clamp(
-            min=0.1, max=5.0
+            min=0.05, max=10.0
         )
 
         # Gaussian log-likelihood
@@ -491,7 +492,12 @@ class DifferentiableParticleFilterV3(nn.Module):
         self.observation = ObservationV3(config)
 
         # Graphical DPF: learned 47x47 adjacency for spatial propagation
-        self.spatial_adjacency = nn.Parameter(torch.randn(47, 47) * 0.01)
+        # Adjacency operates on spatial dims (47 stations), not latent dims (192).
+        # We project particles down to 47-dim, apply adjacency, project back.
+        n_stations = getattr(config, 'n_stations', 47)
+        self.spatial_adjacency = nn.Parameter(torch.randn(n_stations, n_stations) * 0.01)
+        self.spatial_proj_down = nn.Linear(config.d_latent, n_stations)
+        self.spatial_proj_up = nn.Linear(n_stations, config.d_latent)
         self.spatial_gnn = nn.Sequential(
             nn.Linear(config.d_latent, config.d_latent),
             nn.SiLU(),
@@ -543,7 +549,7 @@ class DifferentiableParticleFilterV3(nn.Module):
 
         z = torch.randn(batch_size, N, d_latent, device=device) * 0.1
         regime_logits = torch.zeros(
-            batch_size, N, K + 10, device=device
+            batch_size, N, K, device=device
         )
         regime_logits[:, :, 0] = 0.5  # prior toward continental
 
@@ -570,12 +576,10 @@ class DifferentiableParticleFilterV3(nn.Module):
         Tensor
             Shape (batch, n_particles, d_latent) — spatially mixed states.
         """
-        adj = torch.sigmoid(self.spatial_adjacency)  # soft adjacency (47, 47)
-        d = particle_states.size(-1)
-        # Use the top-left d x d block of adjacency for latent-dim mixing
-        adj_slice = adj[:d, :d]
-        messages = torch.einsum('ij,bpj->bpi', adj_slice, particle_states)
-        return particle_states + 0.1 * self.spatial_gnn(messages)
+        adj = torch.sigmoid(self.spatial_adjacency)  # (47, 47)
+        projected = self.spatial_proj_down(particle_states)  # (B, N_particles, 47)
+        messages = torch.einsum('ij,bpj->bpi', adj, projected)  # (B, N_particles, 47)
+        return particle_states + 0.1 * self.spatial_proj_up(messages)
 
     def step(
         self,

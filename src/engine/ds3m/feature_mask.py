@@ -51,7 +51,7 @@ class FeatureMasking(nn.Module):
         # Optional: learned per-feature confidence scaling
         # When a feature is filled with a default, downstream layers
         # may want to know it's less reliable
-        self.confidence_scale = nn.Parameter(torch.ones(n_features))
+        self.confidence_scale = nn.Parameter(torch.ones(n_features) * 2.0)  # sigmoid(2.0) ≈ 0.88
 
         n_params = sum(p.numel() for p in self.parameters())
         log.info(f"FeatureMasking: {n_params:,} parameters, "
@@ -79,6 +79,7 @@ class FeatureMasking(nn.Module):
 
         # Scale by confidence (available features get full weight,
         # default-filled features get a learned scale)
+        # sigmoid(2.0) ≈ 0.88, so default-filled features start with meaningful weight
         confidence = mask + torch.sigmoid(self.confidence_scale) * (1.0 - mask)
         return filled * confidence
 

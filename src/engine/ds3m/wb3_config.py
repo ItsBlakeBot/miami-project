@@ -46,6 +46,7 @@ class FusionConfig:
     expand: int = 2
     dropout: float = 0.10
     dim_feedforward: int = 2048
+    regime_dim: int = 8        # dimension of regime posterior for SST router
 
 
 @dataclass

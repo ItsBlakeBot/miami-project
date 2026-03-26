@@ -301,7 +301,8 @@ class RectifiedFlowMatching(nn.Module):
         target_std = self._standardize(target)
 
         # ── Rectified flow loss ───────────────────────────────────
-        t = torch.rand(target_std.shape[0], device=target_std.device)
+        # Sample from [0.025, 0.975] to avoid boundary artifacts with dt_teacher
+        t = torch.rand(target_std.shape[0], device=target_std.device) * 0.95 + 0.025
         noise = torch.randn_like(target_std)
 
         # Straight path interpolation: x_t = (1-t)*noise + t*target
@@ -317,8 +318,15 @@ class RectifiedFlowMatching(nn.Module):
         flow_loss = F.mse_loss(v_pred, v_target)
 
         # ── Consistency distillation loss ─────────────────────────
-        # Enforce that solving the ODE from (x_t, t) to t=1 gives
-        # the same result whether we use 1 step or the EMA teacher
+        # Derivation (Song et al. 2023, adapted for rectified flow):
+        #   The consistency property requires f(x_t, t) = f(x_{t'}, t') for
+        #   any (x_t, t) and (x_{t'}, t') on the same ODE trajectory.
+        #   Here f(x_t, t) = x_t + v(x_t, t) * (1 - t) estimates x_1 (the endpoint).
+        #
+        #   Teacher estimate: take one Euler step t -> t+dt using EMA velocity,
+        #   then estimate x_1 from the new point. This gives a 2-step estimate.
+        #   Student estimate: directly estimate x_1 from (x_t, t) in one shot.
+        #   The loss enforces that both estimates agree, enabling few-step inference.
         with torch.no_grad():
             # Teacher: one Euler step from t to t+dt
             dt_teacher = 1.0 / self.config.n_ode_steps_train
@@ -330,10 +338,11 @@ class RectifiedFlowMatching(nn.Module):
             v_teacher_next = self.velocity_field_ema(
                 x_t_next, t_next, condition
             )
-            # Teacher's full trajectory endpoint estimate
+            # Teacher's full trajectory endpoint estimate: x_1 ≈ x_{t+dt} + v(x_{t+dt}, t+dt) * (1 - (t+dt))
             teacher_endpoint = x_t_next + v_teacher_next * (1.0 - t_next).unsqueeze(-1)
 
         # Student: direct prediction from (x_t, t) to t=1
+        # x_1 ≈ x_t + v(x_t, t) * (1 - t)
         v_student = self.velocity_field(x_t, t, condition)
         student_endpoint = x_t + v_student * (1.0 - t_expand)
 
