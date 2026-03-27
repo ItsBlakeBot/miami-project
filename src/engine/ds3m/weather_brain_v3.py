@@ -344,16 +344,17 @@ class WeatherBrainV3(nn.Module):
         )
         result.update(task_result)
 
-        # Bracket cross-entropy
+        # Bracket cross-entropy (from the separate bracket_softmax head)
+        bracket_loss = torch.tensor(0.0, device=outputs["bracket_probs"].device)
         if "bracket_target" in targets:
-            bracket_loss = F.kl_div(
-                outputs["bracket_probs"].log().clamp(min=-10),
-                targets["bracket_target"],
-                reduction="batchmean",
-            )
-            result["bracket_loss"] = bracket_loss
-        else:
-            bracket_loss = torch.tensor(0.0, device=outputs["bracket_probs"].device)
+            bt = targets["bracket_target"].long()
+            valid_bt = bt >= 0  # -1 means no settlement data
+            if valid_bt.any():
+                bracket_loss = F.cross_entropy(
+                    outputs["bracket_probs"][valid_bt],
+                    bt[valid_bt],
+                )
+        result["bracket_loss"] = bracket_loss
 
         # Flow matching loss
         if target_temp is not None:

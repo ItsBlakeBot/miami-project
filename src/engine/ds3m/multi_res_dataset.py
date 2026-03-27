@@ -369,7 +369,7 @@ class MultiResolutionWeatherDataset(Dataset):
             group = group.sort_values('ts')
             self.mos_by_station[station] = {
                 'ts': group['ts'].values,
-                'temp_f': group['temp_f'].fillna(method='ffill').fillna(80.0).values.astype(np.float32),
+                'temp_f': group['temp_f'].ffill().fillna(80.0).values.astype(np.float32),
                 'wind_speed_kt': group['wind_speed_kt'].fillna(0.0).values.astype(np.float32),
                 'pop_pct': group['pop_pct'].fillna(0.0).values.astype(np.float32),
             }
