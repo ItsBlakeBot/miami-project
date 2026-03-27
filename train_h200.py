@@ -73,7 +73,7 @@ def ensure_packages():
     try:
         from torch.optim import Muon as _  # noqa: F401
     except ImportError:
-        _try_install("muon", "muon")
+        _try_install("muon", "muon-optimizer")
 
 
 ensure_packages()
