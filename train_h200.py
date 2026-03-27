@@ -270,7 +270,18 @@ class CombinedOptimizer(torch.optim.Optimizer):
 
     def step(self, closure=None):
         if self.mu:
+            # Some backbone params may not receive gradients every step
+            # (e.g. unused graph layers, conditional branches). Set None
+            # grads to zero temporarily so Muon's Newton-Schulz doesn't crash.
+            none_grad_params = []
+            for group in self.mu.param_groups:
+                for p in group["params"]:
+                    if p.grad is None:
+                        p.grad = torch.zeros_like(p)
+                        none_grad_params.append(p)
             self.mu.step()
+            for p in none_grad_params:
+                p.grad = None
         self.adamw.step()
 
     def zero_grad(self, set_to_none=False):
