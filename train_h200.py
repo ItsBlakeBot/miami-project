@@ -1652,7 +1652,7 @@ def main():
     config = {
         "batch_size": args.batch_size,
         "trading_batch_size": args.trading_batch_size,
-        "byol_epochs": 0,
+        "byol_epochs": 5,
         "supervised_epochs": 50,
         "flow_epochs": 20,
         "decision_epochs": 15,
