@@ -46,6 +46,8 @@ TASK_NAMES = [
     "next_hour_temp",
     "nwp_bias",
     "regime",
+    "bracket_probs_low",
+    "daily_low_bracket",
 ]
 
 N_TASKS = len(TASK_NAMES)
@@ -80,7 +82,8 @@ class MultiTaskHeads(nn.Module):
         self.head_daily_min = nn.Linear(d, 1)
         self.head_max_hour = nn.Linear(d, 1)   # UTC decimal hour [0, 24)
         self.head_min_hour = nn.Linear(d, 1)
-        self.head_bracket_probs = nn.Linear(d, config.n_brackets)  # softmax
+        self.head_bracket_probs = nn.Linear(d, config.n_brackets)  # softmax (HIGH)
+        self.head_bracket_probs_low = nn.Linear(d, config.n_brackets)  # softmax (LOW)
         self.head_next_hour_temp = nn.Linear(d, 1)
         self.head_nwp_bias = nn.Linear(d, 1)
         self.head_regime = nn.Linear(d, config.n_regimes)  # classification
@@ -132,7 +135,8 @@ class MultiTaskHeads(nn.Module):
             "daily_min": self.head_daily_min(x).squeeze(-1),          # (B,)
             "max_hour": torch.sigmoid(self.head_max_hour(x).squeeze(-1)) * 24.0,  # (B,) in [0, 24)
             "min_hour": torch.sigmoid(self.head_min_hour(x).squeeze(-1)) * 24.0,  # (B,)
-            "bracket_probs": self.head_bracket_probs(x),  # (B, n_brackets) — raw logits, NOT softmaxed
+            "bracket_probs": self.head_bracket_probs(x),  # (B, n_brackets) — raw logits (HIGH)
+            "bracket_probs_low": self.head_bracket_probs_low(x),  # (B, n_brackets) — raw logits (LOW)
             "next_hour_temp": self.head_next_hour_temp(x).squeeze(-1),  # (B,)
             "nwp_bias": self.head_nwp_bias(x).squeeze(-1),            # (B,)
             "regime": self.head_regime(x),                              # (B, n_regimes) — logits
@@ -200,7 +204,7 @@ class MultiTaskHeads(nn.Module):
             if name in targets:
                 losses[name] = F.mse_loss(predictions[name], targets[name])
 
-        # Bracket probs: handle both scalar index (-1=unknown) and distribution targets
+        # Bracket probs (HIGH): handle both scalar index (-1=unknown) and distribution targets
         if "bracket_target" in targets:
             bracket_idx = targets["bracket_target"].long()
             valid = bracket_idx >= 0
@@ -215,6 +219,15 @@ class MultiTaskHeads(nn.Module):
                 targets["bracket_probs"],
                 reduction="batchmean",
             )
+
+        # Bracket probs (LOW): same pattern as HIGH
+        if "bracket_target_low" in targets:
+            bracket_idx_low = targets["bracket_target_low"].long()
+            valid_low = bracket_idx_low >= 0
+            if valid_low.any():
+                losses["bracket_probs_low"] = F.cross_entropy(
+                    predictions["bracket_probs_low"][valid_low], bracket_idx_low[valid_low]
+                )
 
         # Regime: skip entirely when ALL targets are -1 (produces NaN otherwise)
         if "regime" in targets:

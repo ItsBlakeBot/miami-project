@@ -33,9 +33,9 @@ from torch.utils.data import Dataset, DataLoader
 log = logging.getLogger(__name__)
 
 # ── Feature counts (must match WB3Config) ──────────────────────────────
-N_FINE_FEATURES = 14      # 10 weather + 4 time features
+N_FINE_FEATURES = 18      # 10 weather + 4 time + 2 lightning + 2 radar
 N_MEDIUM_FEATURES = 36    # 8 ASOS + 3 GFS + 3 ECMWF + 4 HRRR + 2 buoy + 3 MOS(temp,wind,pop) + 5 time + 2 derived + 1 spread + 5 buffer
-N_COARSE_FEATURES = 18    # 4 GFS + 4 ECMWF + 3 MOS(temp,wind,pop) + 6 time + 1 buffer
+N_COARSE_FEATURES = 24    # 4 GFS + 4 ECMWF + 3 MOS(temp,wind,pop) + 6 time + 6 teleconnections
 
 FINE_SEQ_LEN = 32         # 8 hours × 4 per hour
 MEDIUM_SEQ_LEN = 96       # 96 hours
@@ -226,12 +226,27 @@ class MultiResolutionWeatherDataset(Dataset):
                 "FROM kalshi_markets WHERE event_ticker LIKE '%HIGHMIA%'",
                 conn,
             )
-            self.bracket_outcomes = self._build_bracket_outcomes()
-            log.info(f"    {len(self.kalshi_df)} rows, {len(self.bracket_outcomes)} settled dates")
+            self.bracket_outcomes = self._build_bracket_outcomes(self.kalshi_df)
+            log.info(f"    HIGH: {len(self.kalshi_df)} rows, {len(self.bracket_outcomes)} settled dates")
         except Exception:
             log.warning("    kalshi_markets not found — bracket targets will be -1")
             self.kalshi_df = pd.DataFrame()
             self.bracket_outcomes = {}
+
+        # kalshi_markets LOW (bracket outcomes for daily LOW temp) — optional
+        log.info("  Loading kalshi_markets (LOW)...")
+        try:
+            self.kalshi_low_df = pd.read_sql_query(
+                "SELECT event_ticker, floor_strike, cap_strike, result "
+                "FROM kalshi_markets WHERE event_ticker LIKE '%LOWTMIA%' OR event_ticker LIKE '%LOWMIA%'",
+                conn,
+            )
+            self.bracket_outcomes_low = self._build_bracket_outcomes(self.kalshi_low_df)
+            log.info(f"    LOW: {len(self.kalshi_low_df)} rows, {len(self.bracket_outcomes_low)} settled dates")
+        except Exception:
+            log.warning("    kalshi_markets LOW not found — LOW bracket targets will be -1")
+            self.kalshi_low_df = pd.DataFrame()
+            self.bracket_outcomes_low = {}
 
         # upper_air_soundings — optional
         log.info("  Loading upper_air_soundings...")
@@ -248,19 +263,66 @@ class MultiResolutionWeatherDataset(Dataset):
             log.warning("    upper_air_soundings not found — coarse branch will use NWP only")
             self.sounding_df = pd.DataFrame()
 
+        # Teleconnection indices (daily, slow-varying)
+        log.info("  Loading teleconnection_indices...")
+        try:
+            self.teleconnection_df = pd.read_sql_query(
+                "SELECT date, enso_oni, nao, pna, mjo_phase, mjo_amplitude, amo "
+                "FROM teleconnection_indices ORDER BY date",
+                conn,
+            )
+            log.info(f"    {len(self.teleconnection_df)} rows")
+        except Exception:
+            log.warning("    teleconnection_indices not found — coarse teleconnection features unavailable")
+            self.teleconnection_df = pd.DataFrame()
+
+        # Lightning GLM (hourly)
+        log.info("  Loading lightning_glm...")
+        try:
+            self.lightning_df = pd.read_sql_query(
+                "SELECT timestamp_utc, flash_count, flash_density "
+                "FROM lightning_glm ORDER BY timestamp_utc",
+                conn,
+            )
+            self.lightning_df['ts'] = pd.to_datetime(self.lightning_df['timestamp_utc'])
+            log.info(f"    {len(self.lightning_df)} rows")
+        except Exception:
+            log.warning("    lightning_glm not found — fine lightning features unavailable")
+            self.lightning_df = pd.DataFrame()
+
+        # MRMS Reflectivity (hourly)
+        log.info("  Loading mrms_reflectivity...")
+        try:
+            self.radar_df = pd.read_sql_query(
+                "SELECT timestamp_utc, max_reflectivity_dbz, precip_rate_mmhr "
+                "FROM mrms_reflectivity ORDER BY timestamp_utc",
+                conn,
+            )
+            self.radar_df['ts'] = pd.to_datetime(self.radar_df['timestamp_utc'])
+            log.info(f"    {len(self.radar_df)} rows")
+        except Exception:
+            log.warning("    mrms_reflectivity not found — fine radar features unavailable")
+            self.radar_df = pd.DataFrame()
+
         # Build indexed lookups for fast access
         self._build_indices()
 
-    def _build_bracket_outcomes(self) -> dict[str, int]:
+    def _build_bracket_outcomes(self, kalshi_df: pd.DataFrame) -> dict[str, int]:
         """Map date -> winning bracket index (0-5) from kalshi_markets.
 
         Brackets are sorted by floor_strike ascending. The winning bracket
         is the one with result='yes'.
+
+        Parameters
+        ----------
+        kalshi_df : pd.DataFrame
+            Filtered Kalshi markets DataFrame with event_ticker, floor_strike,
+            cap_strike, result columns.
         """
         outcomes = {}
         # Group by event_ticker
         events = {}
-        for _, row in self.kalshi_df.iterrows():
+        for _, row in kalshi_df.iterrows():
             et = row['event_ticker']
             if et not in events:
                 events[et] = []
@@ -373,6 +435,43 @@ class MultiResolutionWeatherDataset(Dataset):
                 'wind_speed_kt': group['wind_speed_kt'].fillna(0.0).values.astype(np.float32),
                 'pop_pct': group['pop_pct'].fillna(0.0).values.astype(np.float32),
             }
+
+        # Lightning GLM: sorted timestamps + data
+        if hasattr(self, 'lightning_df') and len(self.lightning_df) > 0:
+            lt = self.lightning_df.sort_values('ts')
+            self.lightning_idx = {
+                'ts': lt['ts'].values,
+                'flash_count': lt['flash_count'].fillna(0.0).values.astype(np.float32),
+                'flash_density': lt['flash_density'].fillna(0.0).values.astype(np.float32),
+            }
+        else:
+            self.lightning_idx = None
+
+        # MRMS Radar: sorted timestamps + data
+        if hasattr(self, 'radar_df') and len(self.radar_df) > 0:
+            rd = self.radar_df.sort_values('ts')
+            self.radar_idx = {
+                'ts': rd['ts'].values,
+                'max_reflectivity_dbz': rd['max_reflectivity_dbz'].fillna(0.0).values.astype(np.float32),
+                'precip_rate_mmhr': rd['precip_rate_mmhr'].fillna(0.0).values.astype(np.float32),
+            }
+        else:
+            self.radar_idx = None
+
+        # Teleconnection indices: date -> row dict
+        if hasattr(self, 'teleconnection_df') and len(self.teleconnection_df) > 0:
+            self.teleconnection_by_date = {}
+            for _, row in self.teleconnection_df.iterrows():
+                self.teleconnection_by_date[row['date']] = {
+                    'enso_oni': float(row['enso_oni']) if pd.notna(row['enso_oni']) else 0.0,
+                    'nao': float(row['nao']) if pd.notna(row['nao']) else 0.0,
+                    'pna': float(row['pna']) if pd.notna(row['pna']) else 0.0,
+                    'mjo_phase': float(row['mjo_phase']) if pd.notna(row['mjo_phase']) else 0.0,
+                    'mjo_amplitude': float(row['mjo_amplitude']) if pd.notna(row['mjo_amplitude']) else 0.0,
+                    'amo': float(row['amo']) if pd.notna(row['amo']) else 0.0,
+                }
+        else:
+            self.teleconnection_by_date = {}
 
     def _build_samples(self, conn: sqlite3.Connection) -> None:
         """Build list of sample dates filtered by split."""
@@ -524,6 +623,54 @@ class MultiResolutionWeatherDataset(Dataset):
             data[t, 12] = math.sin(2 * math.pi * doy / 365.25)
             data[t, 13] = math.cos(2 * math.pi * doy / 365.25)
             mask[t, 10:14] = 1.0
+
+        # Lightning features (indices 14-15): flash_count, flash_density
+        # Lightning is hourly — match each 15-min slot to nearest hour
+        if self.lightning_idx is not None and len(self.lightning_idx['ts']) > 0:
+            lt_ts = self.lightning_idx['ts']
+            start_np = np.datetime64(start_time.tz_localize(None) if start_time.tzinfo else start_time)
+            anchor_np = np.datetime64(anchor.tz_localize(None) if anchor.tzinfo else anchor)
+            lt_mask = (lt_ts >= start_np) & (lt_ts < anchor_np)
+            lt_indices = np.where(lt_mask)[0]
+
+            if len(lt_indices) > 0:
+                lt_timestamps = lt_ts[lt_indices]
+                for t in range(FINE_SEQ_LEN):
+                    minutes_back = (FINE_SEQ_LEN - t) * 15
+                    slot_time_np = anchor_np - np.timedelta64(minutes_back, 'm')
+                    # Find nearest hourly lightning obs
+                    diffs = np.abs(lt_timestamps - slot_time_np)
+                    nearest = np.argmin(diffs)
+                    # Only use if within 30 minutes
+                    if diffs[nearest] <= np.timedelta64(30, 'm'):
+                        src_idx = lt_indices[nearest]
+                        data[t, 14] = float(self.lightning_idx['flash_count'][src_idx])
+                        data[t, 15] = float(self.lightning_idx['flash_density'][src_idx])
+                        mask[t, 14:16] = 1.0
+
+        # Radar features (indices 16-17): max_reflectivity_dbz, precip_rate_mmhr
+        # Radar is hourly — match each 15-min slot to nearest hour
+        if self.radar_idx is not None and len(self.radar_idx['ts']) > 0:
+            rd_ts = self.radar_idx['ts']
+            start_np = np.datetime64(start_time.tz_localize(None) if start_time.tzinfo else start_time)
+            anchor_np = np.datetime64(anchor.tz_localize(None) if anchor.tzinfo else anchor)
+            rd_mask = (rd_ts >= start_np) & (rd_ts < anchor_np)
+            rd_indices = np.where(rd_mask)[0]
+
+            if len(rd_indices) > 0:
+                rd_timestamps = rd_ts[rd_indices]
+                for t in range(FINE_SEQ_LEN):
+                    minutes_back = (FINE_SEQ_LEN - t) * 15
+                    slot_time_np = anchor_np - np.timedelta64(minutes_back, 'm')
+                    # Find nearest hourly radar obs
+                    diffs = np.abs(rd_timestamps - slot_time_np)
+                    nearest = np.argmin(diffs)
+                    # Only use if within 30 minutes
+                    if diffs[nearest] <= np.timedelta64(30, 'm'):
+                        src_idx = rd_indices[nearest]
+                        data[t, 16] = float(self.radar_idx['max_reflectivity_dbz'][src_idx])
+                        data[t, 17] = float(self.radar_idx['precip_rate_mmhr'][src_idx])
+                        mask[t, 16:18] = 1.0
 
         return {'data': data, 'mask': mask}
 
@@ -764,6 +911,27 @@ class MultiResolutionWeatherDataset(Dataset):
             data[t, 16] = float(slot_time.isocalendar()[1]) / 52.0  # week of year
             mask[t, 11:17] = 1.0
 
+        # Teleconnection indices (features 18-23): slow-varying, same value for entire window
+        # enso_oni, nao, pna, mjo_phase, mjo_amplitude, amo
+        if len(self.teleconnection_by_date) > 0:
+            # Use the anchor date to find the teleconnection values
+            date_str = anchor.strftime('%Y-%m-%d')
+            tele = self.teleconnection_by_date.get(date_str)
+            # If exact date not found, try the most recent prior date
+            if tele is None:
+                tele_dates = sorted(self.teleconnection_by_date.keys())
+                prior = [d for d in tele_dates if d <= date_str]
+                if prior:
+                    tele = self.teleconnection_by_date[prior[-1]]
+            if tele is not None:
+                data[:, 18] = tele['enso_oni']
+                data[:, 19] = tele['nao']
+                data[:, 20] = tele['pna']
+                data[:, 21] = tele['mjo_phase']
+                data[:, 22] = tele['mjo_amplitude']
+                data[:, 23] = tele['amo']
+                mask[:, 18:24] = 1.0
+
         return {'data': data, 'mask': mask}
 
     # ── Station Features ──────────────────────────────────────────────
@@ -807,6 +975,7 @@ class MultiResolutionWeatherDataset(Dataset):
             'max_hour': 20.0,
             'min_hour': 11.0,
             'bracket_target': -1,
+            'bracket_target_low': -1,
             'next_hour_temp': 80.0,
             'nwp_bias': 0.0,
             'regime': -1,
@@ -824,9 +993,13 @@ class MultiResolutionWeatherDataset(Dataset):
             if cli['low_hour_utc'] is not None:
                 targets['min_hour'] = float(cli['low_hour_utc'])
 
-        # Bracket target from Kalshi
+        # Bracket target from Kalshi (HIGH)
         bracket = self.bracket_outcomes.get(date_str, -1)
         targets['bracket_target'] = bracket
+
+        # Bracket target from Kalshi (LOW)
+        bracket_low = self.bracket_outcomes_low.get(date_str, -1)
+        targets['bracket_target_low'] = bracket_low
 
         # Next hour temp (temp at anchor + 1h)
         asos = self.asos_by_station.get('KMIA')
@@ -862,6 +1035,7 @@ class MultiResolutionWeatherDataset(Dataset):
             'max_hour': torch.tensor(targets['max_hour'], dtype=torch.float32),
             'min_hour': torch.tensor(targets['min_hour'], dtype=torch.float32),
             'bracket_target': torch.tensor(targets['bracket_target'], dtype=torch.long),
+            'bracket_target_low': torch.tensor(targets['bracket_target_low'], dtype=torch.long),
             'next_hour_temp': torch.tensor(targets['next_hour_temp'], dtype=torch.float32),
             'nwp_bias': torch.tensor(targets['nwp_bias'], dtype=torch.float32),
             'regime': torch.tensor(targets['regime'], dtype=torch.long),

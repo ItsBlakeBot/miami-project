@@ -30,7 +30,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-from engine.ds3m.wb3_config import MambaBranchConfig, FusionConfig
+from engine.ds3m.wb3_config import MambaBranchConfig, FusionConfig, GraphMambaV3Config
 
 log = logging.getLogger(__name__)
 
@@ -288,6 +288,99 @@ class MambaBlock(nn.Module):
 
 
 # ──────────────────────────────────────────────────────────────────────
+# Interleaved Mamba + Graph Block (for medium branch Full Graph-SSM)
+# ──────────────────────────────────────────────────────────────────────
+
+class InterleavedMambaGraphBlock(nn.Module):
+    """Mamba temporal + Graph spatial at every layer.
+
+    Each layer first applies a MambaBlock for temporal processing along
+    the time axis, then a SpatialGraphAttentionV3 for spatial processing
+    across stations. This interleaving lets the model learn spatial-
+    temporal interactions like sea-breeze onset propagation.
+
+    Parameters
+    ----------
+    d_model : int
+        Model dimension.
+    d_state : int
+        SSM state dimension.
+    n_heads : int
+        Number of graph attention heads.
+    dropout : float
+        Dropout rate.
+    graph_config : GraphMambaV3Config or None
+        Config for graph attention layer.
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        d_state: int = 64,
+        d_conv: int = 4,
+        expand: int = 2,
+        n_heads: int = 14,
+        dropout: float = 0.1,
+        graph_config: GraphMambaV3Config | None = None,
+    ) -> None:
+        super().__init__()
+        from engine.ds3m.graph_mamba_v3 import SpatialGraphAttentionV3
+
+        self.mamba = MambaBlock(d_model, d_state, d_conv, expand, dropout)
+        self.graph_attn = SpatialGraphAttentionV3(
+            d_model=d_model,
+            n_heads=n_heads,
+            dropout=dropout,
+            use_dynamic_edges=graph_config.use_dynamic_edges if graph_config else True,
+            rope_base=graph_config.rope_base if graph_config else 10000.0,
+        )
+
+    def forward(
+        self,
+        x: Tensor,
+        adj: Tensor | None = None,
+        wind_dirs: Tensor | None = None,
+        bearings: Tensor | None = None,
+    ) -> Tensor:
+        """Forward pass: temporal Mamba then spatial graph attention.
+
+        Parameters
+        ----------
+        x : Tensor
+            Shape (B, T, N_stations, d_model) — spatiotemporal tensor.
+        adj : Tensor or None
+            Shape (N, N) — static adjacency matrix.
+        wind_dirs : Tensor or None
+            Shape (B, N) — wind direction per station.
+        bearings : Tensor or None
+            Shape (N, N) — bearing matrix.
+
+        Returns
+        -------
+        Tensor
+            Shape (B, T, N_stations, d_model).
+        """
+        B, T, N, D = x.shape
+
+        # Temporal: reshape to (B*N, T, D) so MambaBlock processes each station's time series
+        x_time = x.permute(0, 2, 1, 3).reshape(B * N, T, D)
+        x_time = self.mamba(x_time)
+        x_time = x_time.reshape(B, N, T, D).permute(0, 2, 1, 3)  # (B, T, N, D)
+
+        # Spatial: reshape to (B*T, N, D) so graph attention processes each timestep's stations
+        if adj is not None:
+            x_space = x_time.reshape(B * T, N, D)
+            x_space = self.graph_attn(
+                x_space, adj,
+                wind_dirs=wind_dirs.unsqueeze(1).expand(B, T, N).reshape(B * T, N) if wind_dirs is not None else None,
+                bearings=bearings,
+            )
+            x_time = x_space.reshape(B, T, N, D)
+
+        return x_time
+
+
+# ──────────────────────────────────────────────────────────────────────
 # Temporal Branch (single resolution)
 # ──────────────────────────────────────────────────────────────────────
 
@@ -295,53 +388,113 @@ class TemporalBranch(nn.Module):
     """Single-resolution temporal Mamba branch.
 
     Processes a fixed-resolution time series through an input projection
-    and a stack of Mamba blocks.
+    and a stack of Mamba blocks. Optionally interleaves graph attention
+    at every layer (for the medium branch's Full Graph-SSM mode).
 
     Parameters
     ----------
     config : MambaBranchConfig
         Branch hyperparameters.
+    interleave_graph : bool
+        If True, use InterleavedMambaGraphBlock instead of plain MambaBlock.
+        Only the medium branch uses this.
+    graph_config : GraphMambaV3Config or None
+        Config for graph attention layers (required if interleave_graph=True).
     """
 
-    def __init__(self, config: MambaBranchConfig) -> None:
+    def __init__(
+        self,
+        config: MambaBranchConfig,
+        interleave_graph: bool = False,
+        graph_config: GraphMambaV3Config | None = None,
+    ) -> None:
         super().__init__()
         self.config = config
+        self.interleave_graph = interleave_graph
         self.input_proj = nn.Linear(config.d_input, config.d_model)
-        self.layers = nn.ModuleList([
-            MambaBlock(
-                config.d_model, config.d_state, config.d_conv,
-                config.expand, config.dropout,
-            )
-            for _ in range(config.n_layers)
-        ])
+
+        if interleave_graph:
+            if graph_config is None:
+                graph_config = GraphMambaV3Config()
+            self.layers = nn.ModuleList([
+                InterleavedMambaGraphBlock(
+                    d_model=config.d_model,
+                    d_state=config.d_state,
+                    d_conv=config.d_conv,
+                    expand=config.expand,
+                    n_heads=graph_config.n_heads,
+                    dropout=config.dropout,
+                    graph_config=graph_config,
+                )
+                for _ in range(config.n_layers)
+            ])
+        else:
+            self.layers = nn.ModuleList([
+                MambaBlock(
+                    config.d_model, config.d_state, config.d_conv,
+                    config.expand, config.dropout,
+                )
+                for _ in range(config.n_layers)
+            ])
         self.output_norm = nn.LayerNorm(config.d_model)
 
         n_params = sum(p.numel() for p in self.parameters())
         log.info(
             f"TemporalBranch: {n_params:,} params, "
             f"d_model={config.d_model}, d_state={config.d_state}, "
-            f"n_layers={config.n_layers}, seq_len={config.seq_len}"
+            f"n_layers={config.n_layers}, seq_len={config.seq_len}, "
+            f"interleave_graph={interleave_graph}"
         )
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(
+        self,
+        x: Tensor,
+        adj: Tensor | None = None,
+        wind_dirs: Tensor | None = None,
+        bearings: Tensor | None = None,
+        station_embed: Tensor | None = None,
+    ) -> Tensor:
         """Process temporal sequence.
 
         Parameters
         ----------
         x : Tensor
-            Shape (batch, seq_len, d_input).
+            Shape (batch, seq_len, d_input) for standard mode, or
+            (batch, seq_len, N_stations, d_input) for interleaved mode.
+        adj : Tensor or None
+            Shape (N, N) — adjacency (only used in interleaved mode).
+        wind_dirs : Tensor or None
+            Shape (B, N) — wind direction per station (interleaved mode).
+        bearings : Tensor or None
+            Shape (N, N) — bearing matrix (interleaved mode).
+        station_embed : Tensor or None
+            Shape (N, d_model) — station embeddings to add after input projection.
 
         Returns
         -------
         Tensor
-            Shape (batch, seq_len, d_model).
+            Shape (batch, seq_len, d_model) for standard mode, or
+            (batch, seq_len, N_stations, d_model) for interleaved mode.
         """
         from torch.utils.checkpoint import checkpoint
 
-        h = self.input_proj(x)
-        for layer in self.layers:
-            h = checkpoint(layer, h, use_reentrant=False)
-        return self.output_norm(h)
+        if self.interleave_graph:
+            # x: (B, T, N, d_input) -> project -> (B, T, N, d_model)
+            h = self.input_proj(x)
+            # Add station embeddings
+            if station_embed is not None:
+                h = h + station_embed.unsqueeze(0).unsqueeze(0)  # (1, 1, N, d_model)
+            for layer in self.layers:
+                h = checkpoint(
+                    layer, h, adj, wind_dirs, bearings,
+                    use_reentrant=False,
+                )
+            return self.output_norm(h)
+        else:
+            h = self.input_proj(x)
+            for layer in self.layers:
+                h = checkpoint(layer, h, use_reentrant=False)
+            return self.output_norm(h)
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -599,10 +752,34 @@ class MultiResolutionMamba(nn.Module):
         self.coarse_config = coarse_config
         self.fusion_config = fusion_config
 
+        # ── Graph config for interleaved medium branch ───────────
+        graph_config = GraphMambaV3Config()
+
         # ── Temporal branches ─────────────────────────────────────
         self.fine_branch = TemporalBranch(fine_config)
-        self.medium_branch = TemporalBranch(medium_config)
+        self.medium_branch = TemporalBranch(
+            medium_config,
+            interleave_graph=True,
+            graph_config=graph_config,
+        )
         self.coarse_branch = TemporalBranch(coarse_config)
+
+        # ── Graph structure for interleaved medium branch ─────────
+        from engine.ds3m.graph_mamba_v3 import (
+            ALL_STATIONS_V3,
+            build_adjacency_matrix_v3,
+            build_bearing_matrix_v3,
+        )
+        self.interleave_stations = ALL_STATIONS_V3
+        self.interleave_n_stations = len(ALL_STATIONS_V3)
+        self.interleave_target_idx = ALL_STATIONS_V3.index("KMIA")
+        self.interleave_station_embed = nn.Embedding(
+            self.interleave_n_stations, medium_config.d_model
+        )
+        adj = build_adjacency_matrix_v3(ALL_STATIONS_V3, graph_config.max_distance_km)
+        bearings = build_bearing_matrix_v3(ALL_STATIONS_V3)
+        self.register_buffer("interleave_adj", adj)
+        self.register_buffer("interleave_bearings", bearings)
 
         # ── Projection layers to fusion dimension ─────────────────
         d_fusion = fusion_config.d_model
@@ -657,20 +834,23 @@ class MultiResolutionMamba(nn.Module):
         medium_input: Tensor,
         coarse_input: Tensor,
         regime_posterior: Tensor | None = None,
+        wind_dirs: Tensor | None = None,
     ) -> Tensor:
         """Process multi-resolution temporal inputs and fuse.
 
         Parameters
         ----------
         fine_input : Tensor
-            Shape (batch, 32, 64) — 15-min resolution features.
+            Shape (batch, 32, d_input_fine) — 15-min resolution features.
         medium_input : Tensor
-            Shape (batch, 96, 64) — hourly resolution features.
+            Shape (batch, 96, d_input_medium) — hourly resolution features.
         coarse_input : Tensor
-            Shape (batch, 112, 32) — 3-hourly resolution features.
+            Shape (batch, 112, d_input_coarse) — 3-hourly resolution features.
         regime_posterior : Tensor or None
             Shape (batch, regime_dim) — regime posterior for SST router.
             If None, defaults to zeros.
+        wind_dirs : Tensor or None
+            Shape (B, N_stations) — wind direction per station (for graph attention).
 
         Returns
         -------
@@ -687,7 +867,25 @@ class MultiResolutionMamba(nn.Module):
 
         # ── Step 1: Process each branch independently ─────────────
         h_fine = self.fine_branch(fine_input)      # (B, 32, 640)
-        h_medium = self.medium_branch(medium_input)  # (B, 96, 896)
+
+        # Medium branch: interleaved Mamba+Graph — expand to (B, T, N, d_input)
+        N = self.interleave_n_stations
+        medium_expanded = medium_input.unsqueeze(2).expand(
+            batch, medium_input.shape[1], N, medium_input.shape[2]
+        )  # (B, T, N, d_input)
+        station_embed = self.interleave_station_embed(
+            torch.arange(N, device=device)
+        )  # (N, d_model)
+        h_medium_full = self.medium_branch(
+            medium_expanded,
+            adj=self.interleave_adj,
+            wind_dirs=wind_dirs,
+            bearings=self.interleave_bearings,
+            station_embed=station_embed,
+        )  # (B, T, N, d_model)
+        # Pool: extract KMIA station to get (B, T, d_model)
+        h_medium = h_medium_full[:, :, self.interleave_target_idx, :]  # (B, 96, 896)
+
         h_coarse = self.coarse_branch(coarse_input)  # (B, 112, 512)
 
         # ── Step 2: Project to common fusion dimension ────────────
@@ -738,6 +936,7 @@ class MultiResolutionMamba(nn.Module):
         medium_input: Tensor,
         coarse_input: Tensor,
         regime_posterior: Tensor | None = None,
+        wind_dirs: Tensor | None = None,
     ) -> tuple[Tensor, Tensor, Tensor]:
         """Full-sequence forward returning all branch outputs after fusion.
 
@@ -754,7 +953,24 @@ class MultiResolutionMamba(nn.Module):
             regime_posterior = torch.zeros(batch, _sst_regime_dim, device=device)
 
         h_fine = self.fine_branch(fine_input)
-        h_medium = self.medium_branch(medium_input)
+
+        # Medium branch: interleaved Mamba+Graph
+        N = self.interleave_n_stations
+        medium_expanded = medium_input.unsqueeze(2).expand(
+            batch, medium_input.shape[1], N, medium_input.shape[2]
+        )
+        station_embed = self.interleave_station_embed(
+            torch.arange(N, device=device)
+        )
+        h_medium_full = self.medium_branch(
+            medium_expanded,
+            adj=self.interleave_adj,
+            wind_dirs=wind_dirs,
+            bearings=self.interleave_bearings,
+            station_embed=station_embed,
+        )
+        h_medium = h_medium_full[:, :, self.interleave_target_idx, :]
+
         h_coarse = self.coarse_branch(coarse_input)
 
         h_fine_proj = self.fine_proj(h_fine)

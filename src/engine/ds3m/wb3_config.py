@@ -96,6 +96,7 @@ class MultiTaskConfig:
     d_input: int = 896
     n_brackets: int = 6
     n_regimes: int = 8
+    n_tasks: int = 10           # 8 original + bracket_probs_low + regime (10 total)
     gradnorm_alpha: float = 1.5  # GradNorm restoring force
 
 
@@ -123,7 +124,7 @@ class WB3Config:
 
     # ── Branch configs ────────────────────────────────────────────
     fine_branch: MambaBranchConfig = field(default_factory=lambda: MambaBranchConfig(
-        d_input=14, d_model=640, d_state=64, d_conv=4, expand=2,
+        d_input=18, d_model=640, d_state=64, d_conv=4, expand=2,
         n_layers=8, dropout=0.10, seq_len=32,
     ))
     medium_branch: MambaBranchConfig = field(default_factory=lambda: MambaBranchConfig(
@@ -131,7 +132,7 @@ class WB3Config:
         n_layers=12, dropout=0.10, seq_len=96,
     ))
     coarse_branch: MambaBranchConfig = field(default_factory=lambda: MambaBranchConfig(
-        d_input=18, d_model=512, d_state=64, d_conv=4, expand=2,
+        d_input=24, d_model=512, d_state=64, d_conv=4, expand=2,
         n_layers=6, dropout=0.10, seq_len=112,
     ))
 
@@ -143,9 +144,9 @@ class WB3Config:
     tasks: MultiTaskConfig = field(default_factory=MultiTaskConfig)
 
     # ── Feature masking ───────────────────────────────────────────
-    n_features_fine: int = 14
+    n_features_fine: int = 18
     n_features_medium: int = 36
-    n_features_coarse: int = 18
+    n_features_coarse: int = 24
 
     # ── Training ──────────────────────────────────────────────────
     learning_rate: float = 3e-4

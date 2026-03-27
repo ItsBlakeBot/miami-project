@@ -271,7 +271,8 @@ class WeatherBrainV3(nn.Module):
 
         # ── 2. Multi-resolution temporal encoding ─────────────────
         temporal_state = self.multi_res_mamba(
-            fine_input, medium_input, coarse_input
+            fine_input, medium_input, coarse_input,
+            wind_dirs=wind_dirs,
         )  # (B, d_fusion=896)
 
         # ── 3. Spatial encoding across stations ───────────────────
@@ -344,7 +345,7 @@ class WeatherBrainV3(nn.Module):
         )
         result.update(task_result)
 
-        # Bracket cross-entropy (from the separate bracket_softmax head)
+        # Bracket cross-entropy — HIGH (from the separate bracket_softmax head)
         bracket_loss = torch.tensor(0.0, device=outputs["bracket_probs"].device)
         if "bracket_target" in targets:
             bt = targets["bracket_target"].long()
@@ -355,6 +356,18 @@ class WeatherBrainV3(nn.Module):
                     bt[valid_bt],
                 )
         result["bracket_loss"] = bracket_loss
+
+        # Bracket cross-entropy — LOW
+        bracket_loss_low = torch.tensor(0.0, device=outputs["bracket_probs"].device)
+        if "bracket_target_low" in targets:
+            bt_low = targets["bracket_target_low"].long()
+            valid_bt_low = bt_low >= 0
+            if valid_bt_low.any():
+                bracket_loss_low = F.cross_entropy(
+                    outputs["predictions"]["bracket_probs_low"][valid_bt_low],
+                    bt_low[valid_bt_low],
+                )
+        result["bracket_loss_low"] = bracket_loss_low
 
         # Flow matching loss
         if target_temp is not None:
@@ -371,6 +384,7 @@ class WeatherBrainV3(nn.Module):
         result["total_loss"] = (
             task_result["total_loss"]
             + 0.5 * bracket_loss
+            + 0.5 * bracket_loss_low
             + 0.3 * flow_total
         )
 

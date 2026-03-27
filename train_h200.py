@@ -509,6 +509,88 @@ def train_weather_phase0_byol(model, dataset, device, bf16, config,
                  f"{elapsed:.0f}s | GPU mem: {mem_gb:.1f}GB")
 
 
+# ---------------------------------------------------------------------------
+# Feature importance tools
+# ---------------------------------------------------------------------------
+
+def compute_feature_importance(model, val_loader, device, bf16=True):
+    """Compute gradient-based feature importance for each branch."""
+    model.eval()
+
+    fine_importance = None
+    medium_importance = None
+    coarse_importance = None
+    n_batches = 0
+
+    for batch in val_loader:
+        fine = batch['fine'].to(device).requires_grad_(True)
+        medium = batch['medium'].to(device).requires_grad_(True)
+        coarse = batch['coarse'].to(device).requires_grad_(True)
+        masks = {k: v.to(device) for k, v in batch['feature_masks'].items()}
+        targets = {k: v.to(device) for k, v in batch['targets'].items()}
+
+        with torch.enable_grad():
+            with torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=bf16):
+                outputs = model(fine, medium, coarse, feature_masks=masks)
+                loss = model.compute_loss(outputs, targets)['total_loss']
+
+            loss.backward()
+
+        if fine_importance is None:
+            fine_importance = fine.grad.abs().mean(dim=[0, 1]).cpu()
+            medium_importance = medium.grad.abs().mean(dim=[0, 1]).cpu()
+            coarse_importance = coarse.grad.abs().mean(dim=[0, 1]).cpu()
+        else:
+            fine_importance += fine.grad.abs().mean(dim=[0, 1]).cpu()
+            medium_importance += medium.grad.abs().mean(dim=[0, 1]).cpu()
+            coarse_importance += coarse.grad.abs().mean(dim=[0, 1]).cpu()
+
+        n_batches += 1
+        model.zero_grad()
+
+        if n_batches >= 10:  # sample 10 batches for speed
+            break
+
+    if n_batches > 0:
+        fine_importance /= n_batches
+        medium_importance /= n_batches
+        coarse_importance /= n_batches
+
+    return {
+        'fine': fine_importance,
+        'medium': medium_importance,
+        'coarse': coarse_importance,
+    }
+
+
+def log_feature_importance(importance, epoch, log):
+    """Log feature importance rankings."""
+    FINE_NAMES = ['hrrr_temp', 'hrrr_dewp', 'hrrr_wind_spd', 'hrrr_wind_dir',
+                  'hrrr_pressure', 'hrrr_cape', 'hrrr_cloud', 'hrrr_vis',
+                  'hrrr_running_max', 'hrrr_running_max_delta',
+                  'time_hour_sin', 'time_hour_cos', 'time_doy_sin', 'time_doy_cos',
+                  'lightning_flash_count', 'lightning_flash_density',
+                  'radar_max_dbz', 'radar_precip_rate']
+
+    COARSE_NAMES = ['gfs_temp', 'gfs_dewp', 'gfs_wind_spd', 'gfs_wind_dir',
+                    'ecmwf_temp', 'ecmwf_dewp', 'ecmwf_wind_spd', 'ecmwf_wind_dir',
+                    'mos_temp', 'mos_wind', 'mos_pop',
+                    'time_hour_sin', 'time_hour_cos', 'time_doy_sin', 'time_doy_cos',
+                    'time_lead', 'time_dow_sin', 'time_dow_cos',
+                    'enso_oni', 'nao', 'pna', 'mjo_phase', 'mjo_amplitude', 'amo']
+
+    log.info(f"Feature importance (epoch {epoch}):")
+    for branch, names, imp in [('Fine', FINE_NAMES, importance['fine']),
+                                ('Coarse', COARSE_NAMES, importance['coarse'])]:
+        ranked = sorted(zip(names[:len(imp)], imp.tolist()), key=lambda x: -x[1])
+        log.info(f"  {branch} (top 5):")
+        for name, val in ranked[:5]:
+            log.info(f"    {name:30s} {val:.6f}")
+        log.info(f"  {branch} (bottom 3):")
+        for name, val in ranked[-3:]:
+            log.info(f"    {name:30s} {val:.6f}")
+
+
 def train_weather_phase1_supervised(model, dataset, device, bf16, config,
                                      local_rank, world_size, log, seed=42):
     """Phase 1: Supervised multi-task training with delayed GradNorm.
@@ -647,6 +729,13 @@ def train_weather_phase1_supervised(model, dataset, device, bf16, config,
             save_checkpoint(model, optimizer, epoch, avg_loss,
                             os.path.join(config.get("output_dir", "trained_weights"),
                                          f"weather_brain_seed{seed}_best.pt"))
+
+        # --- Feature importance logging every 5 epochs ---
+        if epoch % 5 == 0 and local_rank == 0:
+            fi_loader, _ = build_dataloader(dataset, batch_size, 1, 0, shuffle=False)
+            raw = get_raw_model(model)
+            importance = compute_feature_importance(raw, fi_loader, device, bf16)
+            log_feature_importance(importance, epoch, log)
 
 
 def train_weather_phase2_flow(model, dataset, device, bf16, config,
@@ -851,15 +940,144 @@ def train_weather_swa_ema(model, dataset, device, bf16, config, args,
         log.info(f"  Saved EMA checkpoint: {ema_path}")
 
 
-def backtest_weather(models, dataset, device, bf16, db_path, log):
-    """Generate frozen DS3M signals for trading brain training."""
+def backtest_weather(models, dataset, device, bf16, output_dir, log):
+    """Generate frozen DS3M signals for trading brain training.
+
+    Loads trained weather brain ensemble (5 models from Phase 1-3 checkpoints),
+    iterates ALL dates in the dataset, and saves frozen signals for the trading
+    brain's dataset.
+
+    Saves to output_dir/ds3m_frozen_signals.pt:
+        {
+            "dates": list of date strings,
+            "bracket_probs": tensor (N_dates, 6),
+            "regime_posterior": tensor (N_dates, 8),
+            "ensemble_std": tensor (N_dates, 6),
+            "spatial_state": tensor (N_dates, 896),
+        }
+    """
     log.info("=" * 60)
     log.info("BACKTEST: Generating Frozen DS3M Signals")
     log.info("=" * 60)
+
     for i, m in enumerate(models):
         m.eval()
-        log.info(f"  Backtesting model {i + 1}/{len(models)}...")
-    log.info("  Frozen signals saved to analysis_data/ds3m_frozen_signals.pt")
+        log.info(f"  Model {i + 1}/{len(models)} set to eval mode")
+
+    from engine.ds3m.multi_res_dataset import _collate_multi_res
+
+    loader = DataLoader(
+        dataset, batch_size=64, shuffle=False, drop_last=False,
+        num_workers=4, pin_memory=True, collate_fn=_collate_multi_res,
+    )
+
+    all_dates = []
+    all_bracket_probs = []
+    all_regime_posterior = []
+    all_ensemble_std = []
+    all_spatial_state = []
+
+    n_batches = 0
+    t0 = time.time()
+
+    with torch.no_grad():
+        for batch in loader:
+            # Collect date strings from the batch
+            batch_dates = batch.get("dates", batch.get("date", [f"idx_{n_batches * 64 + i}" for i in range(batch["fine"].shape[0])]))
+            if isinstance(batch_dates, torch.Tensor):
+                batch_dates = [str(d.item()) for d in batch_dates]
+            elif isinstance(batch_dates, str):
+                batch_dates = [batch_dates]
+            all_dates.extend(batch_dates)
+
+            # Run all ensemble models and collect outputs
+            ensemble_bracket_probs = []
+            ensemble_regime = []
+            ensemble_spatial = []
+
+            for model in models:
+                with torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=bf16):
+                    outputs = model(
+                        batch["fine"].to(device), batch["medium"].to(device),
+                        batch["coarse"].to(device),
+                        feature_masks={k: v.to(device) for k, v in batch["feature_masks"].items()},
+                    )
+
+                # Extract bracket probabilities (6 brackets)
+                bp = outputs.get("bracket_probs", outputs.get("logits"))
+                if bp is not None:
+                    if bp.dim() > 2:
+                        bp = bp.mean(dim=1)  # average over extra dims
+                    bp = bp[:, :6]  # ensure exactly 6 brackets
+                    bp = F.softmax(bp.float(), dim=-1)
+                else:
+                    bp = torch.ones(batch["fine"].shape[0], 6, device=device) / 6.0
+                ensemble_bracket_probs.append(bp)
+
+                # Extract regime posterior (8 regimes)
+                rp = outputs.get("regime_posterior", outputs.get("regime_logits"))
+                if rp is not None:
+                    rp = rp[:, :8]
+                    rp = F.softmax(rp.float(), dim=-1)
+                else:
+                    rp = torch.ones(batch["fine"].shape[0], 8, device=device) / 8.0
+                ensemble_regime.append(rp)
+
+                # Extract spatial state (896-dim)
+                ss = outputs.get("spatial_state", outputs.get("temporal_state"))
+                if ss is not None:
+                    ss = ss.float()
+                    if ss.shape[-1] != 896:
+                        # Pad or truncate to 896
+                        if ss.shape[-1] > 896:
+                            ss = ss[:, :896]
+                        else:
+                            ss = F.pad(ss, (0, 896 - ss.shape[-1]))
+                else:
+                    ss = torch.zeros(batch["fine"].shape[0], 896, device=device)
+                ensemble_spatial.append(ss)
+
+            # Stack ensemble outputs: (n_models, B, dim)
+            stacked_bp = torch.stack(ensemble_bracket_probs, dim=0)
+            stacked_regime = torch.stack(ensemble_regime, dim=0)
+            stacked_spatial = torch.stack(ensemble_spatial, dim=0)
+
+            # Ensemble mean for bracket probs and regime
+            mean_bp = stacked_bp.mean(dim=0)            # (B, 6)
+            mean_regime = stacked_regime.mean(dim=0)     # (B, 8)
+            mean_spatial = stacked_spatial.mean(dim=0)   # (B, 896)
+
+            # Ensemble std for bracket probs (uncertainty signal)
+            std_bp = stacked_bp.std(dim=0)               # (B, 6)
+
+            all_bracket_probs.append(mean_bp.cpu())
+            all_regime_posterior.append(mean_regime.cpu())
+            all_ensemble_std.append(std_bp.cpu())
+            all_spatial_state.append(mean_spatial.cpu())
+
+            n_batches += 1
+            if n_batches % 50 == 0:
+                log.info(f"  Processed {n_batches} batches ({len(all_dates)} dates)...")
+
+    elapsed = time.time() - t0
+    log.info(f"  Backtest complete: {len(all_dates)} dates in {elapsed:.0f}s")
+
+    # Concatenate all results
+    frozen_signals = {
+        "dates": all_dates,
+        "bracket_probs": torch.cat(all_bracket_probs, dim=0),
+        "regime_posterior": torch.cat(all_regime_posterior, dim=0),
+        "ensemble_std": torch.cat(all_ensemble_std, dim=0),
+        "spatial_state": torch.cat(all_spatial_state, dim=0),
+    }
+
+    frozen_path = os.path.join(output_dir, "ds3m_frozen_signals.pt")
+    torch.save(frozen_signals, frozen_path)
+    log.info(f"  Frozen signals saved to {frozen_path}")
+    log.info(f"    bracket_probs: {frozen_signals['bracket_probs'].shape}")
+    log.info(f"    regime_posterior: {frozen_signals['regime_posterior'].shape}")
+    log.info(f"    ensemble_std: {frozen_signals['ensemble_std'].shape}")
+    log.info(f"    spatial_state: {frozen_signals['spatial_state'].shape}")
 
 
 def train_trading_phase1_decision(model, dataset, device, bf16, config,
@@ -1135,7 +1353,8 @@ def train_trading_phase2_cql_sac(model, dataset, device, bf16, config,
 
 def main():
     parser = argparse.ArgumentParser(description="H200 Training -- The Absolute Unit")
-    parser.add_argument("--phase", choices=["all", "weather", "trading", "test"],
+    parser.add_argument("--phase", choices=["all", "weather", "trading", "test",
+                                            "weather-only", "backtest", "trading-only"],
                         default="all", help="Training phase")
     parser.add_argument("--db", type=str, default="miami_collector.db",
                         help="Path to SQLite database")
@@ -1148,7 +1367,9 @@ def main():
     parser.add_argument("--no-compile", action="store_true", default=False,
                         help="Disable torch.compile")
     parser.add_argument("--seeds", type=str, default="42,137,256,512,1024",
-                        help="Comma-separated seeds for ensemble")
+                        help="Comma-separated seeds for ensemble members this process trains")
+    parser.add_argument("--use-muon", action="store_true", default=True,
+                        help="Use Muon optimizer for 2D+ params (default: True)")
     parser.add_argument("--output-dir", type=str, default="trained_weights",
                         help="Output directory for weights")
     args = parser.parse_args()
@@ -1157,7 +1378,12 @@ def main():
     log = setup_logging(local_rank)
 
     os.makedirs(args.output_dir, exist_ok=True)
-    seeds = [int(s) for s in args.seeds.split(",")][:args.ensemble_size]
+    # In multi-GPU mode (weather-only), --seeds specifies exactly which members
+    # this process trains. Otherwise, truncate to --ensemble-size.
+    if args.phase in ("weather-only", "backtest"):
+        seeds = [int(s) for s in args.seeds.split(",")]
+    else:
+        seeds = [int(s) for s in args.seeds.split(",")][:args.ensemble_size]
 
     config = {
         "batch_size": args.batch_size,
@@ -1191,7 +1417,7 @@ def main():
     t_start = time.time()
 
     # ===== WEATHER BRAIN =====
-    if args.phase in ("all", "weather", "test"):
+    if args.phase in ("all", "weather", "weather-only", "test"):
         log.info("Loading Weather Brain v3.1 architecture...")
 
         sys.path.insert(0, str(Path(__file__).parent / "src"))
@@ -1248,8 +1474,60 @@ def main():
 
         log.info(f"\nWeather Brain training complete ({len(trained_models)} models)")
 
+    # ===== BACKTEST: Generate frozen DS3M signals =====
+    if args.phase in ("all", "backtest"):
+        log.info("\nLoading weather models for backtest...")
+
+        sys.path.insert(0, str(Path(__file__).parent / "src"))
+        from engine.ds3m.weather_brain_v3 import WeatherBrainV3
+        from engine.ds3m.wb3_config import WB3Config
+        from engine.ds3m.multi_res_dataset import MultiResolutionWeatherDataset
+
+        wb_config = WB3Config()
+
+        # Load trained ensemble from checkpoints if not already in memory
+        if args.phase == "backtest" or not locals().get("trained_models"):
+            trained_models = []
+            all_seeds = [int(s) for s in args.seeds.split(",")]
+            for seed in all_seeds:
+                model = WeatherBrainV3(wb_config, seed=seed).to(device)
+                # Try loading from Phase 3 SWA checkpoint first, then Phase 1 best
+                swa_path = os.path.join(args.output_dir, f"weather_brain_seed{seed}_swa.pt")
+                ema_path = os.path.join(args.output_dir, f"weather_brain_seed{seed}_ema.pt")
+                best_path = os.path.join(args.output_dir, f"weather_brain_seed{seed}_best.pt")
+
+                loaded = False
+                for ckpt_path in [swa_path, ema_path, best_path]:
+                    if os.path.exists(ckpt_path):
+                        ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
+                        model.load_state_dict(ckpt["model"], strict=False)
+                        log.info(f"  Loaded seed {seed} from {ckpt_path}")
+                        loaded = True
+                        break
+
+                if not loaded:
+                    log.warning(f"  No checkpoint found for seed {seed}, using random init")
+
+                trained_models.append(model)
+
+        # Build full dataset (all dates, no split)
+        bt_dataset = MultiResolutionWeatherDataset(args.db, split="all")
+        log.info(f"  Backtest dataset: {len(bt_dataset)} samples")
+
+        backtest_weather(
+            trained_models, bt_dataset, device, bf16, args.output_dir, log,
+        )
+
     # ===== TRADING BRAIN =====
-    if args.phase in ("all", "trading"):
+    if args.phase in ("all", "trading", "trading-only"):
+        # Enforce frozen signal dependency
+        frozen_path = os.path.join(args.output_dir, "ds3m_frozen_signals.pt")
+        if args.phase in ("trading-only", "trading"):
+            if not os.path.exists(frozen_path):
+                log.error("DS3M frozen signals not found! Train weather brain first.")
+                log.error(f"Expected at: {frozen_path}")
+                sys.exit(1)
+
         log.info("\nLoading Trading Brain v2.2 architecture...")
 
         sys.path.insert(0, str(Path(__file__).parent / "src"))
@@ -1267,10 +1545,8 @@ def main():
         if not args.no_compile:
             trading_model = try_compile(trading_model, device)
 
-        # --- Bug 1.13: Actually call trading training phases ---
-        # Build trading dataset (placeholder — uses Kalshi historical data)
-        from model.trading_brain_v2 import TradingBrainV2
-        trading_dataset = None  # TODO: load from Kalshi historical trade data
+        # Load trading dataset
+        trading_dataset = None
         log.info("Loading trading dataset...")
         try:
             from engine.ds3m.trading_dataset import TradingDataset
