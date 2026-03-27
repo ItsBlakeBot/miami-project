@@ -121,12 +121,17 @@ def setup_distributed():
         torch.cuda.set_device(0)
         device = torch.device("cuda:0")
         # Init gloo for single-GPU (Muon requires process group)
+        # Use unique port per CUDA_VISIBLE_DEVICES to avoid conflicts
+        # when running multiple single-GPU processes on same machine
+        gpu_id = os.environ.get("CUDA_VISIBLE_DEVICES", "0").split(",")[0]
+        unique_port = str(29500 + int(gpu_id))
         os.environ.setdefault("MASTER_ADDR", "localhost")
-        os.environ.setdefault("MASTER_PORT", "29500")
+        os.environ.setdefault("MASTER_PORT", unique_port)
         os.environ.setdefault("RANK", "0")
         os.environ.setdefault("WORLD_SIZE", "1")
         try:
-            dist.init_process_group(backend="gloo")
+            if not dist.is_initialized():
+                dist.init_process_group(backend="gloo")
         except Exception:
             pass
     elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
