@@ -160,30 +160,39 @@ class SelectiveSSMBlock(nn.Module):
         C: Tensor,
         dt: Tensor,
     ) -> Tensor:
-        """Parallel associative scan for training.
+        """Memory-efficient chunked recurrent scan.
 
-        Uses recurrence: h_t = A_bar * h_{t-1} + B_bar * x_t
-                          y_t = C_t * h_t
-
-        Exponential-trapezoidal discretization (Mamba3 improvement).
+        Processes in chunks of 16 timesteps with detached hidden states
+        between chunks to limit gradient graph size.
         """
         batch, seq_len, d_inner = x.shape
+        chunk_size = 16
 
         h = torch.zeros(batch, d_inner, self.d_state, device=x.device, dtype=x.dtype)
-        outputs = []
+        all_outputs = []
 
-        for t in range(seq_len):
-            dt_t = dt[:, t].unsqueeze(-1)  # (B, d_inner, 1) — broadcasts with A (d_inner, d_state)
-            A_bar_t = torch.exp(A.unsqueeze(0) * dt_t)
-            B_t = B[:, t, :]
-            C_t = C[:, t, :]
-            x_t = x[:, t, :]
+        for chunk_start in range(0, seq_len, chunk_size):
+            chunk_end = min(chunk_start + chunk_size, seq_len)
+            chunk_outputs = []
 
-            h = A_bar_t * h + dt_t * B_t.unsqueeze(1) * x_t.unsqueeze(-1)
-            y_t = (C_t.unsqueeze(1) * h).sum(dim=-1)
-            outputs.append(y_t)
+            # Detach hidden state between chunks to limit graph size
+            if chunk_start > 0:
+                h = h.detach()
 
-        return torch.stack(outputs, dim=1)
+            for t in range(chunk_start, chunk_end):
+                dt_t = dt[:, t].unsqueeze(-1)
+                A_bar_t = torch.exp(A.unsqueeze(0) * dt_t)
+                B_t = B[:, t, :]
+                C_t = C[:, t, :]
+                x_t = x[:, t, :]
+
+                h = A_bar_t * h + dt_t * B_t.unsqueeze(1) * x_t.unsqueeze(-1)
+                y_t = (C_t.unsqueeze(1) * h).sum(dim=-1)
+                chunk_outputs.append(y_t)
+
+            all_outputs.extend(chunk_outputs)
+
+        return torch.stack(all_outputs, dim=1)
 
     def step(
         self, x: Tensor, state: Tensor | None = None
@@ -306,9 +315,11 @@ class TemporalBranch(nn.Module):
         Tensor
             Shape (batch, seq_len, d_model).
         """
+        from torch.utils.checkpoint import checkpoint
+
         h = self.input_proj(x)
         for layer in self.layers:
-            h = layer(h)
+            h = checkpoint(layer, h, use_reentrant=False)
         return self.output_norm(h)
 
 
