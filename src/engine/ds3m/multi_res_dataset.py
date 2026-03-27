@@ -484,6 +484,8 @@ class MultiResolutionWeatherDataset(Dataset):
             self.dates = [d for d in all_dates if VAL_START <= d < VAL_END]
         elif self.split == 'test':
             self.dates = [d for d in all_dates if d >= TEST_START]
+        elif self.split == 'all':
+            self.dates = list(all_dates)
         else:
             raise ValueError(f"Unknown split: {self.split}")
 

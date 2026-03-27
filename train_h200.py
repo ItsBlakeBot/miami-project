@@ -444,9 +444,121 @@ class TradingAugmentation:
 # Training phases
 # ---------------------------------------------------------------------------
 
+class BYOLPredictor(nn.Module):
+    """Asymmetric predictor MLP for BYOL online branch."""
+    def __init__(self, d_in, d_hidden=2048, d_out=None):
+        super().__init__()
+        d_out = d_out or d_in
+        self.net = nn.Sequential(
+            nn.Linear(d_in, d_hidden),
+            nn.BatchNorm1d(d_hidden),
+            nn.GELU(),
+            nn.Linear(d_hidden, d_out),
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
+
+class BYOLProjector(nn.Module):
+    """Projector MLP that maps temporal_state to BYOL embedding space."""
+    def __init__(self, d_in, d_hidden=2048, d_out=256):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(d_in, d_hidden),
+            nn.BatchNorm1d(d_hidden),
+            nn.GELU(),
+            nn.Linear(d_hidden, d_out),
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
+
+def _byol_augment(fine, medium, coarse, feature_masks, aug_id=0):
+    """Strong augmentations for BYOL — two different views of same sample.
+
+    View 1: temporal jitter + feature noise + station dropout
+    View 2: temporal crop + Gaussian noise + feature masking
+    """
+    if aug_id == 0:
+        # View 1: temporal jitter + moderate noise + random feature zeroing
+        # Temporal jitter: roll by 1-3 steps
+        shift = random.randint(1, 3) * random.choice([-1, 1])
+        fine_aug = torch.roll(fine, shifts=shift, dims=1)  # (B, T, F)
+        medium_aug = torch.roll(medium, shifts=shift, dims=1)
+
+        # Gaussian noise (scale varies per sample)
+        noise_scale = 0.05 + random.random() * 0.15  # 0.05-0.20
+        fine_aug = fine_aug + torch.randn_like(fine_aug) * noise_scale
+        medium_aug = medium_aug + torch.randn_like(medium_aug) * noise_scale
+        coarse_aug = coarse + torch.randn_like(coarse) * noise_scale * 0.5
+
+        # Random feature zeroing (20-40% of features per branch)
+        fm = {}
+        for k, v in feature_masks.items():
+            mask = v.clone()
+            n_features = mask.shape[-1]
+            n_zero = random.randint(n_features // 5, n_features * 2 // 5)
+            zero_idx = random.sample(range(n_features), min(n_zero, n_features))
+            mask[..., zero_idx] = 0.0
+            fm[k] = mask
+
+        return fine_aug, medium_aug, coarse_aug, fm
+    else:
+        # View 2: different augmentation strategy
+        # Temporal masking: zero out random contiguous block (10-30% of timesteps)
+        T_fine = fine.shape[1]
+        mask_len = random.randint(T_fine // 10, T_fine * 3 // 10)
+        mask_start = random.randint(0, T_fine - mask_len)
+        fine_aug = fine.clone()
+        fine_aug[:, mask_start:mask_start + mask_len, :] = 0
+
+        T_med = medium.shape[1]
+        m_len = max(1, mask_len * T_med // T_fine)
+        m_start = max(0, mask_start * T_med // T_fine)
+        medium_aug = medium.clone()
+        medium_aug[:, m_start:m_start + m_len, :] = 0
+
+        # Stronger noise on coarse (coarse is more robust)
+        coarse_aug = coarse + torch.randn_like(coarse) * 0.15
+
+        # Scale perturbation on all features (0.9-1.1x)
+        scale = 0.9 + torch.rand(1, device=fine.device) * 0.2
+        fine_aug = fine_aug * scale
+        medium_aug = medium_aug * scale
+
+        # Different feature masking pattern
+        fm = {}
+        for k, v in feature_masks.items():
+            mask = v.clone()
+            n_features = mask.shape[-1]
+            n_zero = random.randint(n_features // 5, n_features * 2 // 5)
+            zero_idx = random.sample(range(n_features), min(n_zero, n_features))
+            mask[..., zero_idx] = 0.0
+            fm[k] = mask
+
+        return fine_aug, medium_aug, coarse_aug, fm
+
+
+@torch.no_grad()
+def _ema_update(online_model, target_model, tau):
+    """Exponential moving average update: target = tau*target + (1-tau)*online."""
+    for p_online, p_target in zip(online_model.parameters(), target_model.parameters()):
+        p_target.data.mul_(tau).add_(p_online.data, alpha=1.0 - tau)
+
+
 def train_weather_phase0_byol(model, dataset, device, bf16, config,
                                local_rank, world_size, log):
-    """Phase 0: BYOL contrastive pre-training. AdamW only."""
+    """Phase 0: BYOL contrastive pre-training with proper target network + predictor.
+
+    Key components preventing collapse:
+    1. Separate target network (EMA of online) — asymmetry breaks trivial solution
+    2. Predictor MLP on online branch only — forces online to predict, not copy
+    3. Stop-gradient on target — target doesn't get gradient signal
+    4. Strong diverse augmentations — two very different views of same data
+    5. EMA tau warmup — starts at 0.99, warms to 0.999 over training
+    """
     log.info("=" * 60)
     log.info("PHASE 0: BYOL Contrastive Pre-Training")
     log.info("=" * 60)
@@ -456,48 +568,98 @@ def train_weather_phase0_byol(model, dataset, device, bf16, config,
     lr = config.get("byol_lr", 3e-4)
 
     raw_model = get_raw_model(model)
-    optimizer = torch.optim.AdamW(raw_model.parameters(), lr=lr, weight_decay=0.01)
+
+    # Get representation dimension from model
+    d_repr = raw_model.d_model if hasattr(raw_model, 'd_model') else 896
+    d_proj = 256  # projection space dimension
+
+    # Create projector and predictor (online branch only)
+    projector = BYOLProjector(d_in=d_repr, d_hidden=2048, d_out=d_proj).to(device)
+    predictor = BYOLPredictor(d_in=d_proj, d_hidden=2048, d_out=d_proj).to(device)
+
+    # Create target network (deep copy, no gradients)
+    target_model = copy.deepcopy(raw_model)
+    target_projector = copy.deepcopy(projector)
+    for p in target_model.parameters():
+        p.requires_grad = False
+    for p in target_projector.parameters():
+        p.requires_grad = False
+
+    # Optimizer for online network + projector + predictor
+    online_params = list(raw_model.parameters()) + list(projector.parameters()) + list(predictor.parameters())
+    optimizer = torch.optim.AdamW(online_params, lr=lr, weight_decay=0.01)
     log.info(f"Using AdamW optimizer (lr={lr}, wd=0.01)")
+    log.info(f"BYOL: d_repr={d_repr}, d_proj={d_proj}, predictor_hidden=2048")
 
     loader, sampler = build_dataloader(dataset, batch_size, world_size, local_rank)
+
+    # EMA schedule: cosine annealing from 0.996 to 1.0 (per original BYOL paper)
+    tau_base = 0.996
+    tau_final = 1.0
+    total_steps = epochs * len(loader)
+    step_count = 0
 
     for epoch in range(epochs):
         if sampler is not None:
             sampler.set_epoch(epoch)
         model.train()
+        projector.train()
+        predictor.train()
+        target_model.eval()
+        target_projector.eval()
+
         total_loss = 0.0
         n_batches = 0
         t0 = time.time()
 
         for batch in loader:
+            fine = batch["fine"].to(device)
+            medium = batch["medium"].to(device)
+            coarse = batch["coarse"].to(device)
+            fmasks = {k: v.to(device) for k, v in batch["feature_masks"].items()}
+
+            # Generate two augmented views
+            f1, m1, c1, fm1 = _byol_augment(fine, medium, coarse, fmasks, aug_id=0)
+            f2, m2, c2, fm2 = _byol_augment(fine, medium, coarse, fmasks, aug_id=1)
+
             with torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=bf16):
-                out1 = model(
-                    batch["fine"].to(device), batch["medium"].to(device),
-                    batch["coarse"].to(device),
-                    feature_masks={k: v.to(device) for k, v in batch["feature_masks"].items()},
-                )
-                z1 = out1["temporal_state"]
+                # Online branch: view 1 → project → predict
+                out1 = model(f1, m1, c1, feature_masks=fm1)
+                z1 = projector(out1["temporal_state"])
+                p1 = predictor(z1)
 
-                ns = 0.1
-                out2 = model(
-                    batch["fine"].to(device) + torch.randn_like(batch["fine"].to(device)) * ns,
-                    batch["medium"].to(device) + torch.randn_like(batch["medium"].to(device)) * ns,
-                    batch["coarse"].to(device) + torch.randn_like(batch["coarse"].to(device)) * ns,
-                    feature_masks={k: v.to(device) for k, v in batch["feature_masks"].items()},
-                )
-                z2 = out2["temporal_state"]
+                # Online branch: view 2 → project → predict
+                out2 = model(f2, m2, c2, feature_masks=fm2)
+                z2 = projector(out2["temporal_state"])
+                p2 = predictor(z2)
 
-                loss = 2 - 2 * F.cosine_similarity(z1, z2.detach(), dim=-1).mean()
+                # Target branch: both views (no gradient)
+                with torch.no_grad():
+                    t_out1 = target_model(f1, m1, c1, feature_masks=fm1)
+                    tz1 = target_projector(t_out1["temporal_state"])
 
-            loss = torch.nan_to_num(loss, nan=0.0, posinf=1e6, neginf=-1e6)
-            if loss.item() == 0.0:
-                log.warning(f"  NaN loss at batch {n_batches}, skipping")
-                continue
+                    t_out2 = target_model(f2, m2, c2, feature_masks=fm2)
+                    tz2 = target_projector(t_out2["temporal_state"])
+
+                # Symmetrized BYOL loss
+                # Online predicts target: p1 should match tz2, p2 should match tz1
+                loss_a = 2 - 2 * F.cosine_similarity(p1, tz2.detach(), dim=-1).mean()
+                loss_b = 2 - 2 * F.cosine_similarity(p2, tz1.detach(), dim=-1).mean()
+                loss = (loss_a + loss_b) / 2
+
+            loss = torch.nan_to_num(loss, nan=2.0, posinf=2.0, neginf=0.0)
 
             optimizer.zero_grad()
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(raw_model.parameters(), max_norm=1.0)
+            torch.nn.utils.clip_grad_norm_(online_params, max_norm=1.0)
             optimizer.step()
+
+            # EMA update target network
+            # Cosine annealing: tau = 1 - (1-tau_base) * (cos(pi*t/T)+1)/2
+            tau = 1.0 - (1.0 - tau_base) * (np.cos(np.pi * step_count / max(total_steps, 1)) + 1) / 2
+            _ema_update(raw_model, target_model, tau)
+            _ema_update(projector, target_projector, tau)
+            step_count += 1
 
             total_loss += loss.item()
             n_batches += 1
@@ -506,7 +668,12 @@ def train_weather_phase0_byol(model, dataset, device, bf16, config,
         avg_loss = total_loss / max(n_batches, 1)
         mem_gb = torch.cuda.max_memory_allocated(device) / 1e9 if device.type == "cuda" else 0
         log.info(f"  Epoch {epoch}/{epochs} | BYOL loss: {avg_loss:.4f} | "
-                 f"{elapsed:.0f}s | GPU mem: {mem_gb:.1f}GB")
+                 f"tau: {tau:.5f} | {elapsed:.0f}s | GPU mem: {mem_gb:.1f}GB")
+
+    # Clean up target network to free memory
+    del target_model, target_projector, projector, predictor
+    torch.cuda.empty_cache()
+    log.info("  BYOL pre-training complete, target network freed")
 
 
 # ---------------------------------------------------------------------------
@@ -707,8 +874,11 @@ def train_weather_phase1_supervised(model, dataset, device, bf16, config,
 
             total_loss += loss.item()
             for k, v in loss_dict.items():
-                if k != "total_loss" and k != "task_weights":
-                    task_losses_accum[k] = task_losses_accum.get(k, 0.0) + safe_item(v)
+                if k in ("total_loss", "task_weights", "_raw_losses"):
+                    continue
+                if isinstance(v, dict):
+                    continue
+                task_losses_accum[k] = task_losses_accum.get(k, 0.0) + safe_item(v)
             n_batches += 1
 
         elapsed = time.time() - t0
@@ -786,7 +956,10 @@ def train_weather_phase2_flow(model, dataset, device, bf16, config,
                     feature_masks={k: v.to(device) for k, v in batch["feature_masks"].items()},
                 )
 
-                target_temp = batch["targets"]["daily_max"].to(device).unsqueeze(-1)
+                target_temp = batch["targets"].get("daily_max")
+                if target_temp is None:
+                    continue
+                target_temp = target_temp.to(device).unsqueeze(-1)
                 flow_result = raw_model.flow_matching.training_loss(
                     outputs["condition"], target_temp
                 )
@@ -932,7 +1105,9 @@ def train_weather_swa_ema(model, dataset, device, bf16, config, args,
     # Save checkpoints (rank 0 only)
     if local_rank == 0:
         swa_path = os.path.join(args.output_dir, f"weather_brain_seed{seed}_swa.pt")
-        torch.save({"model": swa_model.module.state_dict(), "epoch": swa_epochs}, swa_path)
+        # AveragedModel wraps the model; get underlying state_dict
+        swa_sd = swa_model.module.state_dict() if hasattr(swa_model, 'module') else swa_model.state_dict()
+        torch.save({"model": swa_sd, "epoch": swa_epochs}, swa_path)
         log.info(f"  Saved SWA checkpoint: {swa_path}")
 
         ema_path = os.path.join(args.output_dir, f"weather_brain_seed{seed}_ema.pt")
