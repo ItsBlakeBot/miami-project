@@ -138,17 +138,21 @@ class MultiResolutionWeatherDataset(Dataset):
         self.asos_df['ts'] = pd.to_datetime(self.asos_df['timestamp_utc'])
         log.info(f"    {len(self.asos_df)} rows")
 
-        # hrrr_subhourly (15-min resolution)
+        # hrrr_subhourly (15-min resolution) — optional, may not exist
         log.info("  Loading hrrr_subhourly...")
-        self.hrrr_df = pd.read_sql_query(
-            "SELECT station, valid_time_utc, temperature_2m, dewpoint_2m, "
-            "wind_speed_10m, wind_direction_10m, surface_pressure, cape, "
-            "cloud_cover, visibility "
-            "FROM hrrr_subhourly ORDER BY valid_time_utc",
-            conn,
-        )
-        self.hrrr_df['ts'] = pd.to_datetime(self.hrrr_df['valid_time_utc'])
-        log.info(f"    {len(self.hrrr_df)} rows")
+        try:
+            self.hrrr_df = pd.read_sql_query(
+                "SELECT station, valid_time_utc, temperature_2m, dewpoint_2m, "
+                "wind_speed_10m, wind_direction_10m, surface_pressure, cape, "
+                "cloud_cover, visibility "
+                "FROM hrrr_subhourly ORDER BY valid_time_utc",
+                conn,
+            )
+            self.hrrr_df['ts'] = pd.to_datetime(self.hrrr_df['valid_time_utc'])
+            log.info(f"    {len(self.hrrr_df)} rows")
+        except Exception:
+            log.warning("    hrrr_subhourly table not found — fine branch will use ASOS only")
+            self.hrrr_df = pd.DataFrame()
 
         # nwp_forecast_archive (multi-model NWP)
         log.info("  Loading nwp_forecast_archive...")
@@ -183,37 +187,49 @@ class MultiResolutionWeatherDataset(Dataset):
         self.buoy_df['ts'] = pd.to_datetime(self.buoy_df['timestamp_utc'])
         log.info(f"    {len(self.buoy_df)} rows")
 
-        # cli_timing (daily hi/lo and timing)
+        # cli_timing (daily hi/lo and timing) — optional
         log.info("  Loading cli_timing...")
-        self.cli_df = pd.read_sql_query(
-            "SELECT station, date, high_temp_f, low_temp_f, "
-            "high_hour_utc, low_hour_utc "
-            "FROM cli_timing ORDER BY date",
-            conn,
-        )
-        log.info(f"    {len(self.cli_df)} rows")
+        try:
+            self.cli_df = pd.read_sql_query(
+                "SELECT station, date, high_temp_f, low_temp_f, "
+                "high_hour_utc, low_hour_utc "
+                "FROM cli_timing ORDER BY date",
+                conn,
+            )
+            log.info(f"    {len(self.cli_df)} rows")
+        except Exception:
+            log.warning("    cli_timing not found — using cli_daily_backfill for targets")
+            self.cli_df = pd.DataFrame()
 
-        # kalshi_markets (bracket outcomes)
+        # kalshi_markets (bracket outcomes) — optional
         log.info("  Loading kalshi_markets...")
-        self.kalshi_df = pd.read_sql_query(
-            "SELECT event_ticker, floor_strike, cap_strike, result "
-            "FROM kalshi_markets WHERE event_ticker LIKE '%HIGHMIA%'",
-            conn,
-        )
-        # Build bracket outcome lookup: date -> winning bracket index
-        self.bracket_outcomes = self._build_bracket_outcomes()
-        log.info(f"    {len(self.kalshi_df)} rows, {len(self.bracket_outcomes)} settled dates")
+        try:
+            self.kalshi_df = pd.read_sql_query(
+                "SELECT event_ticker, floor_strike, cap_strike, result "
+                "FROM kalshi_markets WHERE event_ticker LIKE '%HIGHMIA%'",
+                conn,
+            )
+            self.bracket_outcomes = self._build_bracket_outcomes()
+            log.info(f"    {len(self.kalshi_df)} rows, {len(self.bracket_outcomes)} settled dates")
+        except Exception:
+            log.warning("    kalshi_markets not found — bracket targets will be -1")
+            self.kalshi_df = pd.DataFrame()
+            self.bracket_outcomes = {}
 
-        # upper_air_soundings
+        # upper_air_soundings — optional
         log.info("  Loading upper_air_soundings...")
-        self.sounding_df = pd.read_sql_query(
-            "SELECT city, timestamp_utc, t850_temp_c, t925_temp_c, "
-            "cape, precipitable_water_mm, lifted_index "
-            "FROM upper_air_soundings ORDER BY timestamp_utc",
-            conn,
-        )
-        self.sounding_df['ts'] = pd.to_datetime(self.sounding_df['timestamp_utc'])
-        log.info(f"    {len(self.sounding_df)} rows")
+        try:
+            self.sounding_df = pd.read_sql_query(
+                "SELECT city, timestamp_utc, t850_temp_c, t925_temp_c, "
+                "cape, precipitable_water_mm, lifted_index "
+                "FROM upper_air_soundings ORDER BY timestamp_utc",
+                conn,
+            )
+            self.sounding_df['ts'] = pd.to_datetime(self.sounding_df['timestamp_utc'])
+            log.info(f"    {len(self.sounding_df)} rows")
+        except Exception:
+            log.warning("    upper_air_soundings not found — coarse branch will use NWP only")
+            self.sounding_df = pd.DataFrame()
 
         # Build indexed lookups for fast access
         self._build_indices()
