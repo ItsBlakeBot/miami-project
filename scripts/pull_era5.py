@@ -128,6 +128,7 @@ SINGLE_LEVEL_VARS = [
     "convective_available_potential_energy",
     "boundary_layer_height",
     "soil_temperature_level_1",
+    "sea_surface_temperature",
 ]
 
 # ERA5 pressure-level variables (maps to upper air features)
@@ -137,8 +138,10 @@ PRESSURE_LEVEL_VARS = [
     "v_component_of_wind",
     "relative_humidity",
     "geopotential",
+    "specific_humidity",
 ]
 
+# All levels we observe in live soundings (TBW, JAX, MFL, EYW)
 PRESSURE_LEVELS = ["925", "850", "700", "500"]
 
 # Hours to download (all 24)
@@ -149,66 +152,84 @@ OUTPUT_DIR = Path("data/era5")
 
 
 def download_single_levels(client, year, output_dir):
-    """Download ERA5 single-level hourly data for one year."""
-    output_file = output_dir / f"era5_single_{year}.nc"
+    """Download ERA5 single-level hourly data for one year, month by month."""
+    all_files = []
+    for month in range(1, 13):
+        output_file = output_dir / f"era5_single_{year}_{month:02d}.nc"
 
-    if output_file.exists():
-        log.info(f"  {output_file} already exists, skipping")
-        return output_file
+        if output_file.exists():
+            log.info(f"  {output_file} already exists, skipping")
+            all_files.append(output_file)
+            continue
 
-    log.info(f"  Requesting ERA5 single levels for {year}...")
+        log.info(f"  Requesting ERA5 single levels for {year}-{month:02d}...")
 
-    request = {
-        "product_type": ["reanalysis"],
-        "variable": SINGLE_LEVEL_VARS,
-        "year": [str(year)],
-        "month": [f"{m:02d}" for m in range(1, 13)],
-        "day": [f"{d:02d}" for d in range(1, 32)],
-        "time": HOURS,
-        "data_format": "netcdf",
-        "download_format": "unarchived",
-        "area": AREA,
-    }
+        request = {
+            "product_type": ["reanalysis"],
+            "variable": SINGLE_LEVEL_VARS,
+            "year": [str(year)],
+            "month": [f"{month:02d}"],
+            "day": [f"{d:02d}" for d in range(1, 32)],
+            "time": HOURS,
+            "data_format": "netcdf",
+            "download_format": "unarchived",
+            "area": AREA,
+        }
 
-    client.retrieve(
-        "reanalysis-era5-single-levels",
-        request,
-        str(output_file),
-    )
-    log.info(f"  Downloaded: {output_file} ({output_file.stat().st_size / 1e6:.1f} MB)")
-    return output_file
+        try:
+            client.retrieve(
+                "reanalysis-era5-single-levels",
+                request,
+                str(output_file),
+            )
+            log.info(f"  Downloaded: {output_file} ({output_file.stat().st_size / 1e6:.1f} MB)")
+            all_files.append(output_file)
+        except Exception as e:
+            log.error(f"  Failed {year}-{month:02d}: {e}")
+            time.sleep(2)
+
+    return all_files
 
 
 def download_pressure_levels(client, year, output_dir):
-    """Download ERA5 pressure-level hourly data for one year."""
-    output_file = output_dir / f"era5_pressure_{year}.nc"
+    """Download ERA5 pressure-level hourly data for one year, month by month."""
+    all_files = []
+    for month in range(1, 13):
+        output_file = output_dir / f"era5_pressure_{year}_{month:02d}.nc"
 
-    if output_file.exists():
-        log.info(f"  {output_file} already exists, skipping")
-        return output_file
+        if output_file.exists():
+            log.info(f"  {output_file} already exists, skipping")
+            all_files.append(output_file)
+            continue
 
-    log.info(f"  Requesting ERA5 pressure levels for {year}...")
+        log.info(f"  Requesting ERA5 pressure levels for {year}-{month:02d}...")
 
-    request = {
-        "product_type": ["reanalysis"],
-        "variable": PRESSURE_LEVEL_VARS,
-        "year": [str(year)],
-        "month": [f"{m:02d}" for m in range(1, 13)],
-        "day": [f"{d:02d}" for d in range(1, 32)],
-        "time": HOURS,
-        "pressure_level": PRESSURE_LEVELS,
-        "data_format": "netcdf",
-        "download_format": "unarchived",
-        "area": AREA,
-    }
+        request = {
+            "product_type": ["reanalysis"],
+            "variable": PRESSURE_LEVEL_VARS,
+            "year": [str(year)],
+            "month": [f"{month:02d}"],
+            "day": [f"{d:02d}" for d in range(1, 32)],
+            "time": HOURS,
+            "pressure_level": PRESSURE_LEVELS,
+            "data_format": "netcdf",
+            "download_format": "unarchived",
+            "area": AREA,
+        }
 
-    client.retrieve(
-        "reanalysis-era5-pressure-levels",
-        request,
-        str(output_file),
-    )
-    log.info(f"  Downloaded: {output_file} ({output_file.stat().st_size / 1e6:.1f} MB)")
-    return output_file
+        try:
+            client.retrieve(
+                "reanalysis-era5-pressure-levels",
+                request,
+                str(output_file),
+            )
+            log.info(f"  Downloaded: {output_file} ({output_file.stat().st_size / 1e6:.1f} MB)")
+            all_files.append(output_file)
+        except Exception as e:
+            log.error(f"  Failed {year}-{month:02d}: {e}")
+            time.sleep(2)
+
+    return all_files
 
 
 def extract_station_data(nc_file, stations, is_pressure=False):
@@ -327,6 +348,7 @@ def main():
             cape REAL,
             blh REAL,
             stl1 REAL,
+            sst REAL,
             PRIMARY KEY (station_id, timestamp_utc)
         )
     """)
@@ -348,31 +370,39 @@ def main():
     for i, year in enumerate(range(args.start_year, args.end_year + 1)):
         log.info(f"\n--- Year {year} ({i + 1}/{total_years}) ---")
 
-        # Single levels
+        # Single levels (month by month)
         try:
-            nc_file = download_single_levels(client, year, output_dir)
-            log.info(f"  Extracting station data from {nc_file}...")
-            df = extract_station_data(nc_file, STATIONS, is_pressure=False)
-            log.info(f"  Extracted {len(df):,} rows")
-            ingest_to_db(df, args.db, "era5_surface")
+            nc_files = download_single_levels(client, year, output_dir)
+            for nc_file in nc_files:
+                try:
+                    log.info(f"  Extracting station data from {nc_file}...")
+                    df = extract_station_data(nc_file, STATIONS, is_pressure=False)
+                    log.info(f"  Extracted {len(df):,} rows")
+                    ingest_to_db(df, args.db, "era5_surface")
+                except Exception as e:
+                    log.error(f"  Extraction failed for {nc_file}: {e}")
         except Exception as e:
             log.error(f"  Single levels failed for {year}: {e}")
 
-        # Pressure levels
+        # Pressure levels (month by month)
         if not args.single_levels_only:
             try:
-                nc_file = download_pressure_levels(client, year, output_dir)
-                log.info(f"  Extracting pressure data from {nc_file}...")
-                df = extract_station_data(nc_file, STATIONS, is_pressure=True)
-                log.info(f"  Extracted {len(df):,} rows")
-                ingest_to_db(df, args.db, "era5_pressure")
+                nc_files = download_pressure_levels(client, year, output_dir)
+                for nc_file in nc_files:
+                    try:
+                        log.info(f"  Extracting pressure data from {nc_file}...")
+                        df = extract_station_data(nc_file, STATIONS, is_pressure=True)
+                        log.info(f"  Extracted {len(df):,} rows")
+                        ingest_to_db(df, args.db, "era5_pressure")
+                    except Exception as e:
+                        log.error(f"  Extraction failed for {nc_file}: {e}")
             except Exception as e:
                 log.error(f"  Pressure levels failed for {year}: {e}")
 
         # Rate limiting — CDS has request quotas
         if i < total_years - 1:
-            log.info("  Waiting 5s before next request...")
-            time.sleep(5)
+            log.info("  Waiting 2s before next year...")
+            time.sleep(2)
 
     log.info("\n" + "=" * 60)
     log.info("ERA5 DOWNLOAD COMPLETE")
