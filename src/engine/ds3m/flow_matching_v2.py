@@ -305,8 +305,12 @@ class RectifiedFlowMatching(nn.Module):
         target_std = self._standardize(target)
 
         # ── Rectified flow loss ───────────────────────────────────
-        # Sample from [0.025, 0.975] to avoid boundary artifacts with dt_teacher
-        t = torch.rand(target_std.shape[0], device=target_std.device) * 0.95 + 0.025
+        # Logit-normal timestep sampling (NeurIPS 2024: Improving Rectified Flows)
+        # Concentrates samples around t≈0.5 where signal-to-noise is best,
+        # reducing gradient variance vs uniform sampling.
+        u = torch.randn(target_std.shape[0], device=target_std.device)
+        t = torch.sigmoid(u)  # logit-normal: peaked around 0.5
+        t = t.clamp(0.025, 0.975)  # avoid boundary artifacts
         noise = torch.randn_like(target_std)
 
         # Straight path interpolation: x_t = (1-t)*noise + t*target

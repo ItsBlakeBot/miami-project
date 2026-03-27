@@ -949,6 +949,25 @@ def train_weather_phase1_supervised(model, dataset, device, bf16, config,
             f"{task_str} | {elapsed:.0f}s | GPU: {mem_gb:.1f}GB{skip_str}"
         )
 
+        # --- NaN/Inf detector: auto-recover from exploding seed ---
+        if avg_loss > 1e6 or np.isnan(avg_loss) or np.isinf(avg_loss):
+            best_ckpt = os.path.join(config.get("output_dir", "trained_weights"),
+                                     f"weather_brain_seed{seed}_best.pt")
+            if os.path.exists(best_ckpt):
+                log.warning(f"  EXPLOSION DETECTED (loss={avg_loss:.2e}) — "
+                            f"rolling back to best checkpoint")
+                ckpt = torch.load(best_ckpt, map_location=device, weights_only=False)
+                raw_model.load_state_dict(ckpt["model"], strict=False)
+                # Reinit optimizer to clear corrupted momentum buffers
+                if using_muon:
+                    optimizer = CombinedOptimizer(raw_model, weight_decay=0.01)
+                else:
+                    optimizer = torch.optim.AdamW(raw_model.parameters(), lr=lr, weight_decay=0.01)
+                log.info(f"  Recovered from checkpoint (epoch {ckpt.get('epoch', '?')})")
+            else:
+                log.warning(f"  EXPLOSION DETECTED (loss={avg_loss:.2e}) — "
+                            f"no checkpoint to recover from, continuing")
+
         if avg_loss < best_val_loss and local_rank == 0:
             best_val_loss = avg_loss
             save_checkpoint(model, optimizer, epoch, avg_loss,
