@@ -159,29 +159,61 @@ def cleanup_distributed():
 # ---------------------------------------------------------------------------
 
 class CombinedOptimizer(torch.optim.Optimizer):
-    """Muon on weight matrices (2D+), AdamW on biases/norms (1D).
+    """Muon on backbone hidden layers ONLY, AdamW on everything else.
 
-    Muon ONLY works with 2D+ parameter tensors. 1D params (biases,
-    LayerNorm weights/biases) MUST go to AdamW.
+    Per Keller Jordan's guidance: Muon should optimize ONLY 2D params in
+    hidden layers. Input/output layers, heads, flow matching, DPF, and
+    all 1D params go to AdamW.
+
+    Explicit param grouping prevents flow matching explosion — the flow
+    velocity network gets AdamW at 0.5x lr, not Muon's aggressive 0.02.
 
     Uses SEPARATE learning rates:
-      - Muon: lr=0.02 (Newton-Schulz needs high lr)
-      - AdamW: lr=3e-4
+      - Muon: lr=0.02 (Newton-Schulz, backbone Mamba/Graph layers only)
+      - AdamW backbone: lr=3e-4 (1D params, fusion, DPF)
+      - AdamW flow: lr=1.5e-4 (flow matching head, 0.5x base lr)
     """
 
     MUON_LR = 0.02
     ADAMW_LR = 3e-4
+    FLOW_LR = 1.5e-4  # half of AdamW lr for flow stability
+
+    # Module name patterns that should NEVER go to Muon
+    ADAMW_ONLY_PATTERNS = (
+        "flow_matching", "dpf", "heads", "bracket_softmax",
+        "fusion", "mask_fine", "mask_medium", "mask_coarse",
+        "input_proj", "out_proj",  # input/output projections
+    )
 
     def __init__(self, model, lr=None, weight_decay=0.01,
                  muon_lr=None, adamw_lr=None):
         self._muon_lr = muon_lr or self.MUON_LR
         self._adamw_lr = adamw_lr or self.ADAMW_LR
+        self._flow_lr = self.FLOW_LR
 
-        mu_params = [p for p in model.parameters() if p.requires_grad and p.ndim >= 2]
-        adamw_params = [p for p in model.parameters() if p.requires_grad and p.ndim < 2]
+        # Separate params by name: Muon (backbone 2D only) vs AdamW
+        mu_params = []
+        adamw_params = []
+        flow_params = []
+
+        for name, p in model.named_parameters():
+            if not p.requires_grad:
+                continue
+
+            # Flow matching params get their own AdamW group (lower lr)
+            if "flow_matching" in name:
+                flow_params.append(p)
+            # 1D params always go to AdamW
+            elif p.ndim < 2:
+                adamw_params.append(p)
+            # 2D+ params in excluded modules go to AdamW
+            elif any(pat in name for pat in self.ADAMW_ONLY_PATTERNS):
+                adamw_params.append(p)
+            # 2D+ backbone params go to Muon
+            else:
+                mu_params.append(p)
 
         self.mu = None
-        # Try PyTorch 2.11+ built-in Muon first, then KellerJordan fallback
         Muon_cls = None
         try:
             from torch.optim import Muon as _TorchMuon
@@ -203,42 +235,42 @@ class CombinedOptimizer(torch.optim.Optimizer):
             adamw_params = adamw_params + mu_params
             mu_params = []
 
-        self.adamw = torch.optim.AdamW(
-            adamw_params if adamw_params else [nn.Parameter(torch.zeros(1))],
-            lr=self._adamw_lr, weight_decay=weight_decay,
-        )
+        # AdamW with two param groups: backbone (3e-4) and flow (1.5e-4)
+        adamw_groups = []
+        if adamw_params:
+            adamw_groups.append({"params": adamw_params, "lr": self._adamw_lr})
+        if flow_params:
+            adamw_groups.append({"params": flow_params, "lr": self._flow_lr})
+        if not adamw_groups:
+            adamw_groups.append({"params": [nn.Parameter(torch.zeros(1))], "lr": self._adamw_lr})
 
-        all_params = mu_params + adamw_params
+        self.adamw = torch.optim.AdamW(adamw_groups, weight_decay=weight_decay)
+
+        all_params = mu_params + adamw_params + flow_params
         super().__init__(all_params, {"lr": self._adamw_lr})
         self.param_groups = list(self.adamw.param_groups)
         if self.mu:
             self.param_groups.extend(self.mu.param_groups)
 
-    def set_lr_scale(self, scale):
-        """Scale both Muon and AdamW learning rates proportionally.
+        # Log param distribution
+        log = logging.getLogger("train_h200")
+        log.info(f"  CombinedOptimizer param groups:")
+        log.info(f"    Muon (backbone 2D):  {sum(p.numel() for p in mu_params):,} params, lr={self._muon_lr}")
+        log.info(f"    AdamW (other):       {sum(p.numel() for p in adamw_params):,} params, lr={self._adamw_lr}")
+        log.info(f"    AdamW (flow):        {sum(p.numel() for p in flow_params):,} params, lr={self._flow_lr}")
 
-        Used for warmup (scale 0->1) and cosine decay.
-        """
+    def set_lr_scale(self, scale):
+        """Scale all optimizer learning rates proportionally."""
         for pg in self.adamw.param_groups:
-            pg["lr"] = self._adamw_lr * scale
+            base_lr = self._adamw_lr if pg.get("lr", self._adamw_lr) >= self._adamw_lr else self._flow_lr
+            pg["lr"] = base_lr * scale
         if self.mu:
             for pg in self.mu.param_groups:
                 pg["lr"] = self._muon_lr * scale
 
     def step(self, closure=None):
         if self.mu:
-            # Muon crashes on params with None gradients (unused in forward pass).
-            # Temporarily set None grads to zero so Muon's Newton-Schulz doesn't fail.
-            none_grad_params = []
-            for group in self.mu.param_groups:
-                for p in group["params"]:
-                    if p.grad is None:
-                        p.grad = torch.zeros_like(p)
-                        none_grad_params.append(p)
             self.mu.step()
-            # Clear the dummy grads to avoid polluting future backward passes
-            for p in none_grad_params:
-                p.grad = None
         self.adamw.step()
 
     def zero_grad(self, set_to_none=False):
@@ -815,6 +847,12 @@ def train_weather_phase1_supervised(model, dataset, device, bf16, config,
         if sampler is not None:
             sampler.set_epoch(epoch)
 
+        # --- Flow loss warmup: ramp over first 3 epochs post-Muon ---
+        # Prevents flow matching from exploding when Muon kicks in
+        flow_warmup_epoch = max(0, epoch - muon_start_epoch)
+        flow_weight = min(1.0, flow_warmup_epoch / 3.0) if epoch >= muon_start_epoch else 1.0
+        raw_model._flow_warmup_weight = flow_weight
+
         # --- Switch to Muon+AdamW at epoch 5 ---
         if epoch == muon_start_epoch and not using_muon:
             optimizer = CombinedOptimizer(raw_model, weight_decay=0.01)
@@ -822,6 +860,7 @@ def train_weather_phase1_supervised(model, dataset, device, bf16, config,
             opt_name = "Muon+AdamW" if optimizer.mu else "AdamW (Muon unavailable)"
             log.info(f"  Switched to {opt_name} at epoch {epoch}")
             log.info(f"    Muon lr={CombinedOptimizer.MUON_LR}, AdamW lr={CombinedOptimizer.ADAMW_LR}")
+            log.info(f"    Flow lr={CombinedOptimizer.FLOW_LR} (separate AdamW group)")
 
         # --- LR schedule (proportional scaling) ---
         if epoch < warmup_epochs:

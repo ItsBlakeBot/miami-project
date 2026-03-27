@@ -380,12 +380,19 @@ class WeatherBrainV3(nn.Module):
         else:
             flow_total = torch.tensor(0.0, device=outputs["bracket_probs"].device)
 
+        # Flow loss safety: clamp to prevent explosion
+        flow_total = flow_total.clamp(max=100.0)
+
+        # Flow weight ramp: gradually introduce flow loss over first 3 supervised epochs
+        # (set by training loop via model.flow_warmup_weight attribute)
+        flow_weight = getattr(self, '_flow_warmup_weight', 1.0)
+
         # Combined loss
         result["total_loss"] = (
             task_result["total_loss"]
             + 0.5 * bracket_loss
             + 0.5 * bracket_loss_low
-            + 0.3 * flow_total
+            + 0.3 * flow_weight * flow_total
         )
 
         return result
