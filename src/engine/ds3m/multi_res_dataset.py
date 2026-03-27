@@ -849,7 +849,8 @@ class MultiResolutionWeatherDataset(Dataset):
             if len(indices) > 0:
                 gfs_max_c = float(np.max(gfs['temperature_2m'][indices]))
                 gfs_max_f = gfs_max_c * 9.0/5.0 + 32.0  # C→F
-                targets['nwp_bias'] = targets['daily_max'] - gfs_max_f
+                raw_bias = targets['daily_max'] - gfs_max_f
+                targets['nwp_bias'] = max(-20.0, min(20.0, raw_bias))  # clamp to ±20°F
 
         # Regime: -1 (unknown, HDP discovers online)
         targets['regime'] = -1
