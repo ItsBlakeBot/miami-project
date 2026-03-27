@@ -618,11 +618,15 @@ def train_weather_phase0_byol(model, dataset, device, bf16, config,
     4. Strong diverse augmentations — two very different views of same data
     5. EMA tau warmup — starts at 0.99, warms to 0.999 over training
     """
+    epochs = config.get("byol_epochs", 5)
+    if epochs <= 0:
+        log.info("BYOL skipped (byol_epochs=0)")
+        return
+
     log.info("=" * 60)
     log.info("PHASE 0: BYOL Contrastive Pre-Training")
     log.info("=" * 60)
 
-    epochs = config.get("byol_epochs", 5)
     batch_size = config.get("batch_size", 512)
     lr = config.get("byol_lr", 3e-4)
 
@@ -1648,7 +1652,7 @@ def main():
     config = {
         "batch_size": args.batch_size,
         "trading_batch_size": args.trading_batch_size,
-        "byol_epochs": 5,
+        "byol_epochs": 0,
         "supervised_epochs": 50,
         "flow_epochs": 20,
         "decision_epochs": 15,
