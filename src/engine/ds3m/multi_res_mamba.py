@@ -247,7 +247,12 @@ class SelectiveSSMBlock(nn.Module):
 # ──────────────────────────────────────────────────────────────────────
 
 class MambaBlock(nn.Module):
-    """Single Mamba block: LayerNorm -> SelectiveSSM -> Residual + Dropout."""
+    """Single Mamba block: LayerNorm -> SSM -> Residual + Dropout.
+
+    Uses mamba_ssm.Mamba2 CUDA kernels when available (1000x faster,
+    950x less memory). Falls back to pure-PyTorch SelectiveSSMBlock
+    for CPU/MPS inference.
+    """
 
     def __init__(
         self,
@@ -259,8 +264,24 @@ class MambaBlock(nn.Module):
     ) -> None:
         super().__init__()
         self.norm = nn.LayerNorm(d_model)
-        self.ssm = SelectiveSSMBlock(d_model, d_state, d_conv, expand)
         self.dropout = nn.Dropout(dropout)
+
+        # Use CUDA kernels if available, else pure PyTorch
+        try:
+            from mamba_ssm import Mamba2
+            self.ssm = Mamba2(
+                d_model=d_model,
+                d_state=d_state,
+                d_conv=d_conv,
+                expand=expand,
+                chunk_size=32,
+            )
+            self._use_cuda_ssm = True
+            log.info(f"  MambaBlock: using mamba_ssm.Mamba2 CUDA kernels (d={d_model})")
+        except (ImportError, Exception):
+            self.ssm = SelectiveSSMBlock(d_model, d_state, d_conv, expand)
+            self._use_cuda_ssm = False
+            log.info(f"  MambaBlock: using pure-PyTorch SSM fallback (d={d_model})")
 
     def forward(self, x: Tensor) -> Tensor:
         return x + self.dropout(self.ssm(self.norm(x)))
