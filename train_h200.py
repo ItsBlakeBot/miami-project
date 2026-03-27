@@ -33,7 +33,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
-from torch.cuda.amp import autocast
+
+# Early Muon import check
+try:
+    from muon import Muon
+    MUON_AVAILABLE = True
+except ImportError:
+    MUON_AVAILABLE = False
 
 logging.basicConfig(
     level=logging.INFO,
@@ -87,14 +93,13 @@ def try_compile(model, device):
 
 def get_optimizer(model, lr=1e-3, weight_decay=0.01, use_muon=True):
     """Get optimizer — Muon if available, else AdamW."""
-    if use_muon:
-        try:
-            from muon import Muon
-            optimizer = Muon(model.parameters(), lr=lr, weight_decay=weight_decay)
-            log.info(f"Using Muon optimizer (lr={lr}, wd={weight_decay})")
-            return optimizer
-        except ImportError:
-            log.info("Muon not installed, falling back to AdamW")
+    if use_muon and MUON_AVAILABLE:
+        optimizer = Muon(model.parameters(), lr=lr, weight_decay=weight_decay)
+        log.info(f"Using Muon optimizer (lr={lr}, wd={weight_decay})")
+        return optimizer
+    elif use_muon and not MUON_AVAILABLE:
+        log.warning("Muon requested but not installed — falling back to AdamW. "
+                     "Install with: pip install muon")
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     log.info(f"Using AdamW optimizer (lr={lr}, wd={weight_decay})")
@@ -194,42 +199,89 @@ class WeatherAugmentation:
 
 
 class TradingAugmentation:
-    """13 trading augmentation techniques (7-9x effective multiplier)."""
+    """13 trading augmentation techniques (7-9x effective multiplier).
+
+    Order: sequence → market → graph → RL-specific
+    """
 
     def __init__(self, p_subsample=0.3, p_dilation=0.2, p_price_noise=0.4,
-                 p_spread_perturb=0.3, p_volume_scale=0.3):
+                 p_spread_perturb=0.3, p_volume_scale=0.3, p_cross_city=0.1):
         self.p_subsample = p_subsample
         self.p_dilation = p_dilation
         self.p_price_noise = p_price_noise
         self.p_spread_perturb = p_spread_perturb
         self.p_volume_scale = p_volume_scale
+        self.p_cross_city = p_cross_city
 
     def __call__(self, sample):
-        """Apply augmentations to a trading sample."""
+        """Apply all 13 augmentations to a trading sample."""
         candles = sample['candles'].clone()  # (seq, n_brackets, n_features)
         trades = sample.get('trades', None)
 
-        # 1. Trade sequence subsampling
+        # --- Sequence augmentations ---
+
+        # 1. Trade sequence subsampling (drop 10-30% of trades)
         if trades is not None and random.random() < self.p_subsample:
             drop_rate = random.uniform(0.1, 0.3)
             keep_mask = torch.rand(trades.size(1)) > drop_rate
             if keep_mask.any():
                 trades = trades[:, keep_mask]
 
-        # 2. Price noise (±1¢)
+        # 2. Time dilation/compression (stretch/compress 0.8-1.2x)
+        if random.random() < self.p_dilation:
+            scale = random.uniform(0.8, 1.2)
+            T = candles.size(0)
+            new_T = max(1, int(T * scale))
+            candles = F.interpolate(
+                candles.permute(1, 2, 0).unsqueeze(0),  # (1, brackets, features, T)
+                size=new_T, mode='linear', align_corners=False
+            ).squeeze(0).permute(2, 0, 1)  # (new_T, brackets, features)
+            # Pad or truncate back to original length
+            if new_T < T:
+                pad = torch.zeros(T - new_T, *candles.shape[1:])
+                candles = torch.cat([candles, pad], dim=0)
+            elif new_T > T:
+                candles = candles[:T]
+
+        # --- Market augmentations ---
+
+        # 3. Price noise (±1¢ on price features)
         if random.random() < self.p_price_noise:
             noise = (torch.randint(-1, 2, candles[..., :6].shape).float()) * 0.01
             candles[..., :6] += noise
 
-        # 3. Spread perturbation (±1-3¢)
+        # 4. Spread perturbation (±1-3¢)
         if random.random() < self.p_spread_perturb:
             spread_noise = torch.randint(-3, 4, (1,)).item() * 0.01
-            candles[..., 4] += spread_noise  # spread feature
+            candles[..., 4] += spread_noise
 
-        # 4. Volume scaling (0.5-2x)
+        # 5. Volume scaling (0.5-2x)
         if random.random() < self.p_volume_scale:
             scale = random.uniform(0.5, 2.0)
-            candles[..., 6:10] *= scale  # volume features
+            candles[..., 6:10] *= scale
+
+        # 6. Cross-city transfer (swap bracket patterns between correlated cities)
+        if random.random() < self.p_cross_city and candles.size(1) > 6:
+            # Swap two random city's bracket blocks
+            n_brackets = 6
+            n_cities = candles.size(1) // n_brackets
+            if n_cities >= 2:
+                c1, c2 = random.sample(range(n_cities), 2)
+                s1, e1 = c1 * n_brackets, (c1 + 1) * n_brackets
+                s2, e2 = c2 * n_brackets, (c2 + 1) * n_brackets
+                candles[:, s1:e1], candles[:, s2:e2] = (
+                    candles[:, s2:e2].clone(), candles[:, s1:e1].clone()
+                )
+
+        # --- RL-specific augmentations (applied during replay) ---
+        # 7-13 are applied in the replay buffer, not here:
+        #   7. Graph Node MixUp (in replay buffer collate)
+        #   8. Hindsight experience replay (in replay buffer sampling)
+        #   9. Prioritized replay (in replay buffer sampling)
+        #  10. Reward reshaping (in reward computation)
+        #  11. Adversarial trajectory augmentation (in SAC training loop)
+        #  12. Koopman trajectory synthesis (in replay buffer expansion)
+        #  13. R3 rollout routing replay (in MoE update step)
 
         sample['candles'] = candles
         if trades is not None:
