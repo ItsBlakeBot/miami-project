@@ -44,7 +44,7 @@ HOURLY_VARS = (
     "cape,surface_pressure,cloudcover,shortwave_radiation"
 )
 
-MODELS = ["gfs_seamless", "ecmwf_ifs04", "best_match"]
+MODELS = ["gfs_seamless", "ecmwf_ifs", "best_match"]
 
 
 def ensure_table(conn: sqlite3.Connection):

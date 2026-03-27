@@ -34,8 +34,8 @@ log = logging.getLogger(__name__)
 
 # ── Feature counts (must match WB3Config) ──────────────────────────────
 N_FINE_FEATURES = 14      # 10 weather + 4 time features
-N_MEDIUM_FEATURES = 36    # 8 ASOS + 3 GFS + 3 ECMWF + 4 HRRR + 2 buoy + 3 MOS + 5 time + 2 derived + 1 spread + 5 buffer
-N_COARSE_FEATURES = 18    # 4 GFS + 4 ECMWF + 3 MOS + 6 time + 1 buffer
+N_MEDIUM_FEATURES = 36    # 8 ASOS + 3 GFS + 3 ECMWF + 4 HRRR + 2 buoy + 3 MOS(temp,wind,pop) + 5 time + 2 derived + 1 spread + 5 buffer
+N_COARSE_FEATURES = 18    # 4 GFS + 4 ECMWF + 3 MOS(temp,wind,pop) + 6 time + 1 buffer
 
 FINE_SEQ_LEN = 32         # 8 hours × 4 per hour
 MEDIUM_SEQ_LEN = 96       # 96 hours
@@ -369,8 +369,8 @@ class MultiResolutionWeatherDataset(Dataset):
             group = group.sort_values('ts')
             self.mos_by_station[station] = {
                 'ts': group['ts'].values,
-                'max_temp_f': group['max_temp_f'].fillna(85.0).values.astype(np.float32),
-                'min_temp_f': group['min_temp_f'].fillna(70.0).values.astype(np.float32),
+                'temp_f': group['temp_f'].fillna(method='ffill').fillna(80.0).values.astype(np.float32),
+                'wind_speed_kt': group['wind_speed_kt'].fillna(0.0).values.astype(np.float32),
                 'pop_pct': group['pop_pct'].fillna(0.0).values.astype(np.float32),
             }
 
@@ -596,7 +596,7 @@ class MultiResolutionWeatherDataset(Dataset):
                 mask[off:, 8:11] = 1.0
 
         # ECMWF: temp, dewpoint, wind (features 11-13)
-        ecmwf = self.nwp_by_model.get('ecmwf_ifs04')
+        ecmwf = self.nwp_by_model.get('ecmwf_ifs')
         if ecmwf is not None and len(ecmwf['ts']) > 0:
             start_np = np.datetime64(start_time.tz_localize(None))
             anchor_np = np.datetime64(anchor.tz_localize(None))
@@ -643,7 +643,7 @@ class MultiResolutionWeatherDataset(Dataset):
                 data[off:, 19] = torch.from_numpy(buoy['air_temp_c'][indices]) * 9.0/5.0 + 32.0   # C→F
                 mask[off:, 18:20] = 1.0
 
-        # ── MOS: max_forecast, min_forecast, pop (features 20-22) ──
+        # ── MOS: temp_forecast, wind_speed, pop (features 20-22) ──
         mos = self.mos_by_station.get(station)
         if mos is not None and len(mos['ts']) > 0:
             start_np = np.datetime64(start_time.tz_localize(None))
@@ -654,8 +654,8 @@ class MultiResolutionWeatherDataset(Dataset):
                 indices = indices[-MEDIUM_SEQ_LEN:]
                 n_fill = len(indices)
                 off = MEDIUM_SEQ_LEN - n_fill
-                data[off:, 20] = torch.from_numpy(mos['max_temp_f'][indices])
-                data[off:, 21] = torch.from_numpy(mos['min_temp_f'][indices])
+                data[off:, 20] = torch.from_numpy(mos['temp_f'][indices])
+                data[off:, 21] = torch.from_numpy(mos['wind_speed_kt'][indices])
                 data[off:, 22] = torch.from_numpy(mos['pop_pct'][indices])
                 mask[off:, 20:23] = 1.0
 
@@ -716,7 +716,7 @@ class MultiResolutionWeatherDataset(Dataset):
                 mask[off:, :4] = 1.0
 
         # ECMWF: temp, dewpoint, wind_speed, pressure (features 4-7)
-        ecmwf = self.nwp_by_model.get('ecmwf_ifs04')
+        ecmwf = self.nwp_by_model.get('ecmwf_ifs')
         if ecmwf is not None and len(ecmwf['ts']) > 0:
             start_np = np.datetime64(start_time.tz_localize(None))
             anchor_np = np.datetime64(anchor.tz_localize(None))
@@ -732,7 +732,7 @@ class MultiResolutionWeatherDataset(Dataset):
                 data[off:, 7] = torch.from_numpy(ecmwf['surface_pressure'][indices])
                 mask[off:, 4:8] = 1.0
 
-        # MOS: max_temp, min_temp, pop (features 8-10)
+        # MOS: temp_forecast, wind_speed, pop (features 8-10)
         mos = self.mos_by_station.get('KMIA')
         if mos is not None and len(mos['ts']) > 0:
             start_np = np.datetime64(start_time.tz_localize(None))
@@ -743,8 +743,8 @@ class MultiResolutionWeatherDataset(Dataset):
                 indices = indices[::3][-COARSE_SEQ_LEN:]
                 n_fill = len(indices)
                 off = COARSE_SEQ_LEN - n_fill
-                data[off:, 8] = torch.from_numpy(mos['max_temp_f'][indices])
-                data[off:, 9] = torch.from_numpy(mos['min_temp_f'][indices])
+                data[off:, 8] = torch.from_numpy(mos['temp_f'][indices])
+                data[off:, 9] = torch.from_numpy(mos['wind_speed_kt'][indices])
                 data[off:, 10] = torch.from_numpy(mos['pop_pct'][indices])
                 mask[off:, 8:11] = 1.0
 

@@ -14,13 +14,11 @@ DB_PATH = "/Users/blakebot/blakebot/miami-project/miami_collector.db"
 
 # (station, city, description)
 BUOYS = [
-    # SE Florida buoys
+    # SE Florida buoys (only stations with actual SST data)
     ("VAKF1", "Miami", "Virginia Key"),
     ("FWYF1", "Miami", "Fowey Rocks"),
     ("LKWF1", "Miami", "Lake Worth"),
-    ("SMKF1", "Miami", "Sombrero Key"),
-    ("LONF1", "Miami", "Long Key"),
-    ("SPGF1", "Miami", "Settlement Point Grand Bahama"),
+    # Removed: SMKF1, LONF1, SPGF1 — 100% NULL water_temp_c (no SST sensors)
     # NYC buoys
     ("44025", "NYC", "Long Island"),
     ("44065", "NYC", "New York Harbor"),
