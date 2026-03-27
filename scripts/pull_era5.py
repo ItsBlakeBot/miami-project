@@ -31,10 +31,16 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 log = logging.getLogger("pull_era5")
 
 try:
-    import cdsapi
+    from ecmwf.datastores import Client as CDSClient
+    USE_NEW_CLIENT = True
 except ImportError:
-    log.error("cdsapi not installed. Run: pip install cdsapi")
-    sys.exit(1)
+    try:
+        import cdsapi
+        USE_NEW_CLIENT = False
+    except ImportError:
+        log.error("No CDS client installed. Run: pip install ecmwf-datastores-client")
+        log.error("Or fallback: pip install cdsapi")
+        sys.exit(1)
 
 try:
     import xarray as xr
@@ -252,7 +258,12 @@ def main():
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    client = cdsapi.Client()
+    if USE_NEW_CLIENT:
+        client = CDSClient()
+        log.info("Using ecmwf-datastores-client (new)")
+    else:
+        client = cdsapi.Client()
+        log.info("Using cdsapi (legacy)")
 
     log.info("=" * 60)
     log.info("ERA5 Data Download for Miami Weather Trading")
