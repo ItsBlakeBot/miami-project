@@ -92,6 +92,10 @@ class MultiTaskHeads(nn.Module):
         # GradNorm hyperparameter (restoring force strength)
         self.gradnorm_alpha = config.gradnorm_alpha
 
+        # GradNorm delay: use equal weights for the first N epochs
+        self.gradnorm_delay_epochs = getattr(config, "gradnorm_delay_epochs", 10)
+        self._gradnorm_active = False
+
         # Running average of initial loss per task (for relative loss ratios)
         self.register_buffer(
             "initial_losses", torch.ones(N_TASKS)
@@ -128,9 +132,7 @@ class MultiTaskHeads(nn.Module):
             "daily_min": self.head_daily_min(x).squeeze(-1),          # (B,)
             "max_hour": torch.sigmoid(self.head_max_hour(x).squeeze(-1)) * 24.0,  # (B,) in [0, 24)
             "min_hour": torch.sigmoid(self.head_min_hour(x).squeeze(-1)) * 24.0,  # (B,)
-            "bracket_probs": F.softmax(
-                self.head_bracket_probs(x), dim=-1
-            ),  # (B, n_brackets)
+            "bracket_probs": self.head_bracket_probs(x),  # (B, n_brackets) — raw logits, NOT softmaxed
             "next_hour_temp": self.head_next_hour_temp(x).squeeze(-1),  # (B,)
             "nwp_bias": self.head_nwp_bias(x).squeeze(-1),            # (B,)
             "regime": self.head_regime(x),                              # (B, n_regimes) — logits
@@ -198,8 +200,15 @@ class MultiTaskHeads(nn.Module):
             if name in targets:
                 losses[name] = F.mse_loss(predictions[name], targets[name])
 
-        # Bracket probs: cross-entropy (KL divergence from target distribution)
-        if "bracket_probs" in targets:
+        # Bracket probs: handle both scalar index (-1=unknown) and distribution targets
+        if "bracket_target" in targets:
+            bracket_idx = targets["bracket_target"].long()
+            valid = bracket_idx >= 0
+            if valid.any():
+                losses["bracket_probs"] = F.cross_entropy(
+                    predictions["bracket_probs"][valid], bracket_idx[valid]
+                )
+        elif "bracket_probs" in targets:
             log_pred = F.log_softmax(predictions["bracket_probs"], dim=-1)
             losses["bracket_probs"] = F.kl_div(
                 log_pred,
@@ -207,12 +216,14 @@ class MultiTaskHeads(nn.Module):
                 reduction="batchmean",
             )
 
-        # Regime: cross-entropy classification (ignore_index=-1 for unknown)
+        # Regime: skip entirely when ALL targets are -1 (produces NaN otherwise)
         if "regime" in targets:
-            losses["regime"] = F.cross_entropy(
-                predictions["regime"], targets["regime"].long(),
-                ignore_index=-1,
-            )
+            regime_tgt = targets["regime"].long()
+            if (regime_tgt >= 0).any():
+                losses["regime"] = F.cross_entropy(
+                    predictions["regime"], regime_tgt,
+                    ignore_index=-1,
+                )
 
         # ── Physics consistency regularization on NWP bias ─────────
         if "nwp_bias" in losses and "nwp_bias" in predictions:
@@ -222,25 +233,39 @@ class MultiTaskHeads(nn.Module):
             )
             losses["nwp_bias"] = losses["nwp_bias"] + physics_loss
 
-        # ── GradNorm weighted loss ────────────────────────────────
+        # ── GradNorm weighted loss (with delayed activation) ──────
+        # Before GradNorm activates, use equal weights.
+        # GradNorm activates after self.gradnorm_delay_epochs epochs.
         weights = self.task_weights
+        dev = weights.device
+        dt = weights.dtype
+
         task_losses = torch.stack([
-            losses.get(name, torch.tensor(0.0, device=weights.device, dtype=weights.dtype))
+            losses.get(name, torch.tensor(0.0, device=dev, dtype=dt))
             for name in TASK_NAMES
         ])
 
-        # Initialize baseline losses on first call
+        # Replace any NaN/Inf in individual task losses with 0
+        task_losses = torch.nan_to_num(task_losses, nan=0.0, posinf=1e6, neginf=0.0)
+
+        # Initialize baseline losses for GradNorm (clamp to avoid 0/0)
         if not self._initialized and task_losses.sum() > 0:
-            self.initial_losses.copy_(task_losses.detach())
+            self.initial_losses.copy_(task_losses.detach().clamp(min=1e-6))
             self._initialized = True
 
-        # Weighted sum
-        total_loss = (weights * task_losses).sum()
+        # If GradNorm not yet active, use equal weights (sum of losses)
+        if not getattr(self, '_gradnorm_active', False):
+            total_loss = task_losses.sum()
+        else:
+            # GradNorm weighted sum
+            safe_weights = torch.nan_to_num(weights, nan=1.0)
+            total_loss = (safe_weights * task_losses).sum()
 
         result = {"total_loss": total_loss, "task_weights": weights.detach()}
+        result["_raw_losses"] = losses  # non-detached, for GradNorm
         for name in TASK_NAMES:
             if name in losses:
-                result[f"loss_{name}"] = losses[name].detach()
+                result[f"loss_{name}"] = losses[name].detach()  # detached, for logging
 
         return result
 
@@ -263,8 +288,13 @@ class MultiTaskHeads(nn.Module):
         if not shared_params:
             return
 
+        # Use non-detached losses from _raw_losses dict
+        raw_losses = task_losses.get("_raw_losses", {})
+        if not raw_losses:
+            return
+
         if not hasattr(self, '_initial_losses'):
-            self._initial_losses = {k: v.detach().clone() for k, v in task_losses.items()}
+            self._initial_losses = {k: v.detach().clone() for k, v in raw_losses.items()}
 
         weights = self.task_weights
         n_tasks = N_TASKS
@@ -272,13 +302,12 @@ class MultiTaskHeads(nn.Module):
         # Compute gradient norms per task
         grad_norms = []
         for i, name in enumerate(TASK_NAMES):
-            loss_key = f"loss_{name}"
-            if loss_key not in task_losses:
+            if name not in raw_losses:
                 grad_norms.append(torch.tensor(1.0, device=weights.device))
                 continue
 
-            # We need the loss WITH grad (not detached)
-            loss_i = task_losses[loss_key]
+            # Use non-detached loss from _raw_losses
+            loss_i = raw_losses[name]
             if not loss_i.requires_grad:
                 grad_norms.append(torch.tensor(1.0, device=weights.device))
                 continue

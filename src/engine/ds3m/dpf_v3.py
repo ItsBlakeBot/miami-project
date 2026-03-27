@@ -416,11 +416,13 @@ class ObservationV3(nn.Module):
 def soft_resample_v3(
     cloud: ParticleCloudV3,
     temperature: float = 0.5,
+    top_k: int = 64,
 ) -> ParticleCloudV3:
-    """Differentiable soft resampling via Gumbel-Softmax relaxation.
+    """Differentiable soft resampling via top-k Gumbel-Softmax relaxation.
 
-    Uses a soft weighted combination instead of hard systematic
-    resampling to maintain gradient flow.
+    Instead of building an O(B*N*N) assignment matrix, selects the top-k
+    ancestors by weight for each particle and applies Gumbel-Softmax over
+    only those k candidates. Memory: O(B*N*k) instead of O(B*N*N).
 
     Parameters
     ----------
@@ -428,34 +430,55 @@ def soft_resample_v3(
         Particle cloud to resample.
     temperature : float
         Gumbel-Softmax temperature (lower = harder resampling).
+    top_k : int
+        Number of ancestor candidates per particle.
 
     Returns
     -------
     ParticleCloudV3
         Resampled cloud with uniform weights.
     """
-    B, N, _ = cloud.z.shape
+    B, N, d_latent = cloud.z.shape
+    K_regime = cloud.regime_logits.shape[-1]
+    device = cloud.z.device
 
-    log_w = cloud.log_weights.unsqueeze(1).expand(B, N, N)  # (B, N, N)
+    # Clamp top_k to not exceed N
+    top_k = min(top_k, N)
+
+    # Find top-k ancestors by weight for each particle
+    log_w = cloud.log_weights  # (B, N)
+    topk_vals, topk_idx = log_w.topk(top_k, dim=-1)  # (B, top_k)
+
+    # Gumbel-softmax over top-k only (not full N)
+    # Expand for per-particle resampling: each particle picks from same top-k set
+    topk_vals_expanded = topk_vals.unsqueeze(1).expand(B, N, top_k)  # (B, N, top_k)
     gumbel_noise = -torch.log(
-        -torch.log(torch.rand_like(log_w) + 1e-10) + 1e-10
+        -torch.log(torch.rand_like(topk_vals_expanded) + 1e-10) + 1e-10
     )
-    soft_assignment = F.softmax(
-        (log_w + gumbel_noise) / temperature, dim=-1
-    )  # (B, N, N)
+    soft_assign = F.softmax(
+        (topk_vals_expanded + gumbel_noise) / temperature, dim=-1
+    )  # (B, N, top_k)
 
-    # Soft resample latent state
-    new_z = torch.bmm(soft_assignment, cloud.z)  # (B, N, d_latent)
+    # Gather top-k particle states
+    topk_idx_z = topk_idx.unsqueeze(-1).expand(B, top_k, d_latent)  # (B, top_k, d_latent)
+    topk_z = torch.gather(cloud.z, 1, topk_idx_z)  # (B, top_k, d_latent)
 
-    # Soft resample regime logits
-    new_regime_logits = torch.bmm(
-        soft_assignment, cloud.regime_logits
-    )  # (B, N, K)
+    # Weighted combination of top-k ancestors for each particle
+    new_z = torch.bmm(soft_assign, topk_z)  # (B, N, d_latent)
+
+    # Gather top-k regime probabilities, average, convert back to logits
+    topk_idx_r = topk_idx.unsqueeze(-1).expand(B, top_k, K_regime)  # (B, top_k, K_regime)
+    regime_probs = F.softmax(cloud.regime_logits, dim=-1)  # (B, N, K_regime)
+    topk_regime_probs = torch.gather(regime_probs, 1, topk_idx_r)  # (B, top_k, K_regime)
+
+    # Average probabilities (not logits) then convert back to logits
+    new_regime_probs = torch.bmm(soft_assign, topk_regime_probs)  # (B, N, K_regime)
+    new_regime_logits = torch.log(new_regime_probs.clamp(min=1e-8))
 
     return ParticleCloudV3(
         z=new_z,
         regime_logits=new_regime_logits,
-        log_weights=torch.zeros(B, N, device=cloud.z.device),
+        log_weights=torch.zeros(B, N, device=device),
     )
 
 

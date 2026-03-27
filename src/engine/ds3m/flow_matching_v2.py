@@ -242,8 +242,12 @@ class RectifiedFlowMatching(nn.Module):
         return z * self.scale_param.clamp(min=0.1) + self.loc_param
 
     @torch.no_grad()
-    def _update_ema(self) -> None:
-        """Update EMA target network for consistency distillation."""
+    def update_ema(self) -> None:
+        """Update EMA target network for consistency distillation.
+
+        Call this AFTER optimizer.step() in the training loop so the EMA
+        sees the post-update weights (not pre-update / stale weights).
+        """
         for p_ema, p in zip(
             self.velocity_field_ema.parameters(),
             self.velocity_field.parameters(),
@@ -351,8 +355,8 @@ class RectifiedFlowMatching(nn.Module):
         # Combined loss
         loss = flow_loss + 0.1 * consistency_loss
 
-        # Update EMA
-        self._update_ema()
+        # NOTE: EMA update removed from here. Call update_ema() AFTER optimizer.step()
+        # in the training loop to avoid updating with pre-optimizer-step weights.
 
         return {
             "loss": loss,

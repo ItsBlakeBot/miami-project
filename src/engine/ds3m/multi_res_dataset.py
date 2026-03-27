@@ -33,9 +33,9 @@ from torch.utils.data import Dataset, DataLoader
 log = logging.getLogger(__name__)
 
 # ── Feature counts (must match WB3Config) ──────────────────────────────
-N_FINE_FEATURES = 64      # config.n_features_fine
-N_MEDIUM_FEATURES = 64    # config.n_features_medium
-N_COARSE_FEATURES = 32    # config.n_features_coarse
+N_FINE_FEATURES = 14      # 10 weather + 4 time features
+N_MEDIUM_FEATURES = 36    # 8 ASOS + 3 GFS + 3 ECMWF + 4 HRRR + 2 buoy + 3 MOS + 5 time + 2 derived + 1 spread + 5 buffer
+N_COARSE_FEATURES = 18    # 4 GFS + 4 ECMWF + 3 MOS + 6 time + 1 buffer
 
 FINE_SEQ_LEN = 32         # 8 hours × 4 per hour
 MEDIUM_SEQ_LEN = 96       # 96 hours
@@ -160,11 +160,27 @@ class MultiResolutionWeatherDataset(Dataset):
             "SELECT city, model, timestamp_utc, temperature_2m, dewpoint_2m, "
             "windspeed_10m, winddirection_10m, cape, surface_pressure, "
             "cloudcover, shortwave_radiation "
-            "FROM nwp_forecast_archive ORDER BY timestamp_utc",
+            "FROM nwp_forecast_archive WHERE city='Miami' ORDER BY timestamp_utc",
             conn,
         )
         self.nwp_df['ts'] = pd.to_datetime(self.nwp_df['timestamp_utc'])
         log.info(f"    {len(self.nwp_df)} rows")
+
+        # hrrr_archive (hourly HRRR at Miami grid point)
+        log.info("  Loading hrrr_archive...")
+        try:
+            self.hrrr_archive_df = pd.read_sql_query(
+                "SELECT timestamp_utc, temperature_2m, dewpoint_2m, "
+                "windspeed_10m, winddirection_10m, cape, surface_pressure, "
+                "cloudcover, shortwave_radiation "
+                "FROM hrrr_archive ORDER BY timestamp_utc",
+                conn,
+            )
+            self.hrrr_archive_df['ts'] = pd.to_datetime(self.hrrr_archive_df['timestamp_utc'])
+            log.info(f"    {len(self.hrrr_archive_df)} rows")
+        except Exception:
+            log.warning("    hrrr_archive table not found — HRRR medium features unavailable")
+            self.hrrr_archive_df = pd.DataFrame()
 
         # mos_forecasts
         log.info("  Loading mos_forecasts...")
@@ -222,7 +238,7 @@ class MultiResolutionWeatherDataset(Dataset):
             self.sounding_df = pd.read_sql_query(
                 "SELECT city, timestamp_utc, t850_temp_c, t925_temp_c, "
                 "cape, precipitable_water_mm, lifted_index "
-                "FROM upper_air_soundings ORDER BY timestamp_utc",
+                "FROM upper_air_soundings WHERE city='Miami' ORDER BY timestamp_utc",
                 conn,
             )
             self.sounding_df['ts'] = pd.to_datetime(self.sounding_df['timestamp_utc'])
@@ -300,7 +316,20 @@ class MultiResolutionWeatherDataset(Dataset):
                 'visibility': group['visibility'].fillna(10.0).values.astype(np.float32),
             }
 
-        # NWP: model -> sorted timestamps + data (city='miami' assumed)
+        # HRRR archive: single Miami grid point (hourly)
+        if len(self.hrrr_archive_df) > 0:
+            ha = self.hrrr_archive_df.sort_values('ts')
+            self.hrrr_archive_idx = {
+                'ts': ha['ts'].values,
+                'temperature_2m': ha['temperature_2m'].fillna(75.0).values.astype(np.float32),
+                'dewpoint_2m': ha['dewpoint_2m'].fillna(65.0).values.astype(np.float32),
+                'windspeed_10m': ha['windspeed_10m'].fillna(5.0).values.astype(np.float32),
+                'surface_pressure': ha['surface_pressure'].fillna(1015.0).values.astype(np.float32),
+            }
+        else:
+            self.hrrr_archive_idx = None
+
+        # NWP: model -> sorted timestamps + data (city='Miami' filtered)
         self.nwp_by_model = {}
         for model, group in self.nwp_df.groupby('model'):
             group = group.sort_values('ts')
@@ -376,6 +405,9 @@ class MultiResolutionWeatherDataset(Dataset):
         station_features = self._build_station_features(anchor)
         targets = self._build_targets(date_str, anchor)
 
+        # NOTE: Fine branch now always has time features + ASOS fallback for pre-2024.
+        # Medium/coarse branches always have time features. No random noise needed.
+
         return {
             'fine': fine['data'],
             'medium': medium['data'],
@@ -421,8 +453,8 @@ class MultiResolutionWeatherDataset(Dataset):
                 n_fill = len(indices)
                 offset = FINE_SEQ_LEN - n_fill
 
-                data[offset:, 0] = torch.from_numpy(hrrr['temperature_2m'][indices])
-                data[offset:, 1] = torch.from_numpy(hrrr['dewpoint_2m'][indices])
+                data[offset:, 0] = torch.from_numpy(hrrr['temperature_2m'][indices]) * 9.0/5.0 + 32.0  # C→F
+                data[offset:, 1] = torch.from_numpy(hrrr['dewpoint_2m'][indices]) * 9.0/5.0 + 32.0   # C→F
                 data[offset:, 2] = torch.from_numpy(hrrr['wind_speed_10m'][indices])
                 data[offset:, 3] = torch.from_numpy(hrrr['wind_direction_10m'][indices])
                 data[offset:, 4] = torch.from_numpy(hrrr['surface_pressure'][indices])
@@ -430,8 +462,8 @@ class MultiResolutionWeatherDataset(Dataset):
                 data[offset:, 6] = torch.from_numpy(hrrr['cloud_cover'][indices])
                 data[offset:, 7] = torch.from_numpy(hrrr['visibility'][indices])
 
-                # Running max so far
-                temps = hrrr['temperature_2m'][indices]
+                # Running max so far (convert to F)
+                temps = hrrr['temperature_2m'][indices] * 9.0/5.0 + 32.0  # C→F
                 running_max = np.maximum.accumulate(temps)
                 data[offset:, 8] = torch.from_numpy(running_max)
 
@@ -444,7 +476,7 @@ class MultiResolutionWeatherDataset(Dataset):
 
                 mask[offset:, :10] = 1.0
 
-        # If HRRR unavailable, try to fill from ASOS (coarser)
+        # If HRRR unavailable, fill from enriched_asos (interpolate hourly to 15-min)
         if mask.sum() == 0:
             asos = self.asos_by_station.get(station)
             if asos is not None and len(asos['ts']) > 0:
@@ -463,12 +495,34 @@ class MultiResolutionWeatherDataset(Dataset):
                         for s in range(slot_start, slot_end):
                             real_s = FINE_SEQ_LEN - len(indices) * 4 + s
                             if 0 <= real_s < FINE_SEQ_LEN:
-                                data[real_s, 0] = float(asos['temp_f'][idx])
-                                data[real_s, 1] = float(asos['dewpoint_f'][idx])
+                                data[real_s, 0] = float(asos['temp_f'][idx])       # already °F
+                                data[real_s, 1] = float(asos['dewpoint_f'][idx])   # already °F
                                 data[real_s, 2] = float(asos['wind_speed_kt'][idx])
                                 data[real_s, 3] = float(asos['wind_dir_deg'][idx])
                                 data[real_s, 4] = float(asos['pressure_hpa'][idx])
-                                mask[real_s, :5] = 1.0
+                                data[real_s, 5] = 0.0   # cape (unavailable from ASOS)
+                                data[real_s, 6] = 0.0   # cloud_cover (unavailable)
+                                data[real_s, 7] = float(asos['visibility_mi'][idx]) if 'visibility_mi' in asos else 10.0
+                                # mask=0.5 for interpolated values (partial confidence)
+                                mask[real_s, :5] = 0.5
+                    # Running max from ASOS temps
+                    filled_temps = data[:, 0].numpy()
+                    running_max = np.maximum.accumulate(filled_temps)
+                    data[:, 8] = torch.from_numpy(running_max)
+                    mask[data[:, 0] != 0, 8] = 0.5
+
+        # Time features (features 10-13): always available regardless of HRRR/ASOS
+        sunrise_utc = 12.0  # rough average for Miami
+        for t in range(FINE_SEQ_LEN):
+            minutes_back = (FINE_SEQ_LEN - t) * 15
+            slot_time = anchor - pd.Timedelta(minutes=minutes_back)
+            hour_frac = slot_time.hour + slot_time.minute / 60.0
+            doy = slot_time.dayofyear
+            data[t, 10] = math.sin(2 * math.pi * hour_frac / 24.0)
+            data[t, 11] = math.cos(2 * math.pi * hour_frac / 24.0)
+            data[t, 12] = math.sin(2 * math.pi * doy / 365.25)
+            data[t, 13] = math.cos(2 * math.pi * doy / 365.25)
+            mask[t, 10:14] = 1.0
 
         return {'data': data, 'mask': mask}
 
@@ -515,13 +569,13 @@ class MultiResolutionWeatherDataset(Dataset):
 
                 mask[offset:, :8] = 1.0
 
-                # ── Derived features (features 30-32): temp_change_1h, dewpoint_change_1h, nwp_spread ──
+                # ── Derived features (features 28-29): temp_change_1h, dewpoint_change_1h ──
                 if n_fill >= 2:
                     temp_change = np.diff(asos['temp_f'][indices], prepend=asos['temp_f'][indices[0]])
                     dew_change = np.diff(asos['dewpoint_f'][indices], prepend=asos['dewpoint_f'][indices[0]])
-                    data[offset:, 30] = torch.from_numpy(temp_change.astype(np.float32))
-                    data[offset:, 31] = torch.from_numpy(dew_change.astype(np.float32))
-                    mask[offset:, 30:32] = 1.0
+                    data[offset:, 28] = torch.from_numpy(temp_change.astype(np.float32))
+                    data[offset:, 29] = torch.from_numpy(dew_change.astype(np.float32))
+                    mask[offset:, 28:30] = 1.0
 
         # ── NWP features (features 8-21) ──
         # GFS: temp, dewpoint, wind (features 8-10)
@@ -535,13 +589,13 @@ class MultiResolutionWeatherDataset(Dataset):
                 indices = indices[-MEDIUM_SEQ_LEN:]
                 n_fill = len(indices)
                 off = MEDIUM_SEQ_LEN - n_fill
-                data[off:, 8] = torch.from_numpy(gfs['temperature_2m'][indices])
-                data[off:, 9] = torch.from_numpy(gfs['dewpoint_2m'][indices])
+                data[off:, 8] = torch.from_numpy(gfs['temperature_2m'][indices]) * 9.0/5.0 + 32.0  # C→F
+                data[off:, 9] = torch.from_numpy(gfs['dewpoint_2m'][indices]) * 9.0/5.0 + 32.0   # C→F
                 data[off:, 10] = torch.from_numpy(gfs['windspeed_10m'][indices])
                 mask[off:, 8:11] = 1.0
 
         # ECMWF: temp, dewpoint, wind (features 11-13)
-        ecmwf = self.nwp_by_model.get('ecmwf_ifs025')
+        ecmwf = self.nwp_by_model.get('ecmwf_ifs04')
         if ecmwf is not None and len(ecmwf['ts']) > 0:
             start_np = np.datetime64(start_time.tz_localize(None))
             anchor_np = np.datetime64(anchor.tz_localize(None))
@@ -551,15 +605,13 @@ class MultiResolutionWeatherDataset(Dataset):
                 indices = indices[-MEDIUM_SEQ_LEN:]
                 n_fill = len(indices)
                 off = MEDIUM_SEQ_LEN - n_fill
-                data[off:, 11] = torch.from_numpy(ecmwf['temperature_2m'][indices])
-                data[off:, 12] = torch.from_numpy(ecmwf['dewpoint_2m'][indices])
+                data[off:, 11] = torch.from_numpy(ecmwf['temperature_2m'][indices]) * 9.0/5.0 + 32.0  # C→F
+                data[off:, 12] = torch.from_numpy(ecmwf['dewpoint_2m'][indices]) * 9.0/5.0 + 32.0     # C→F
                 data[off:, 13] = torch.from_numpy(ecmwf['windspeed_10m'][indices])
                 mask[off:, 11:14] = 1.0
 
-        # HRRR: temp, dewpoint, wind, cape, pressure, cloud (features 14-19)
-        hrrr = self.nwp_by_model.get('hrrr')
-        if hrrr is None:
-            hrrr = self.nwp_by_model.get('hrrr_continental')
+        # HRRR: temp, dewpoint, wind, pressure (features 14-17) from hrrr_archive
+        hrrr = self.hrrr_archive_idx
         if hrrr is not None and len(hrrr['ts']) > 0:
             start_np = np.datetime64(start_time.tz_localize(None))
             anchor_np = np.datetime64(anchor.tz_localize(None))
@@ -569,14 +621,14 @@ class MultiResolutionWeatherDataset(Dataset):
                 indices = indices[-MEDIUM_SEQ_LEN:]
                 n_fill = len(indices)
                 off = MEDIUM_SEQ_LEN - n_fill
-                data[off:, 14] = torch.from_numpy(hrrr['temperature_2m'][indices])
-                data[off:, 15] = torch.from_numpy(hrrr['dewpoint_2m'][indices])
+                data[off:, 14] = torch.from_numpy(hrrr['temperature_2m'][indices]) * 9.0/5.0 + 32.0  # C→F
+                data[off:, 15] = torch.from_numpy(hrrr['dewpoint_2m'][indices]) * 9.0/5.0 + 32.0     # C→F
                 data[off:, 16] = torch.from_numpy(hrrr['windspeed_10m'][indices])
-                # cape/pressure/cloud from nwp_forecast_archive if available
-                mask[off:, 14:17] = 1.0
+                data[off:, 17] = torch.from_numpy(hrrr['surface_pressure'][indices])
+                mask[off:, 14:18] = 1.0
 
-        # ── Buoy: SST, air_temp (features 20-21) ──
-        buoy = self.buoy_by_city.get('miami')
+        # ── Buoy: SST, air_temp (features 18-19) ──
+        buoy = self.buoy_by_city.get('Miami')
         if buoy is not None and len(buoy['ts']) > 0:
             start_np = np.datetime64(start_time.tz_localize(None))
             anchor_np = np.datetime64(anchor.tz_localize(None))
@@ -586,11 +638,11 @@ class MultiResolutionWeatherDataset(Dataset):
                 indices = indices[-MEDIUM_SEQ_LEN:]
                 n_fill = len(indices)
                 off = MEDIUM_SEQ_LEN - n_fill
-                data[off:, 20] = torch.from_numpy(buoy['water_temp_c'][indices])
-                data[off:, 21] = torch.from_numpy(buoy['air_temp_c'][indices])
-                mask[off:, 20:22] = 1.0
+                data[off:, 18] = torch.from_numpy(buoy['water_temp_c'][indices]) * 9.0/5.0 + 32.0  # C→F
+                data[off:, 19] = torch.from_numpy(buoy['air_temp_c'][indices]) * 9.0/5.0 + 32.0   # C→F
+                mask[off:, 18:20] = 1.0
 
-        # ── MOS: max_forecast, min_forecast, pop (features 22-24) ──
+        # ── MOS: max_forecast, min_forecast, pop (features 20-22) ──
         mos = self.mos_by_station.get(station)
         if mos is not None and len(mos['ts']) > 0:
             start_np = np.datetime64(start_time.tz_localize(None))
@@ -601,30 +653,31 @@ class MultiResolutionWeatherDataset(Dataset):
                 indices = indices[-MEDIUM_SEQ_LEN:]
                 n_fill = len(indices)
                 off = MEDIUM_SEQ_LEN - n_fill
-                data[off:, 22] = torch.from_numpy(mos['max_temp_f'][indices])
-                data[off:, 23] = torch.from_numpy(mos['min_temp_f'][indices])
-                data[off:, 24] = torch.from_numpy(mos['pop_pct'][indices])
-                mask[off:, 22:25] = 1.0
+                data[off:, 20] = torch.from_numpy(mos['max_temp_f'][indices])
+                data[off:, 21] = torch.from_numpy(mos['min_temp_f'][indices])
+                data[off:, 22] = torch.from_numpy(mos['pop_pct'][indices])
+                mask[off:, 20:23] = 1.0
 
-        # ── Time features (features 25-29) ──
-        # Computed for each slot based on offset from anchor
+        # ── Time features (features 23-27) ──
         for t in range(MEDIUM_SEQ_LEN):
             hours_back = MEDIUM_SEQ_LEN - t
             slot_time = anchor - pd.Timedelta(hours=hours_back)
             hour_frac = slot_time.hour + slot_time.minute / 60.0
             doy = slot_time.dayofyear
-            data[t, 25] = math.sin(2 * math.pi * hour_frac / 24.0)
-            data[t, 26] = math.cos(2 * math.pi * hour_frac / 24.0)
-            data[t, 27] = math.sin(2 * math.pi * doy / 365.25)
-            data[t, 28] = math.cos(2 * math.pi * doy / 365.25)
-            # Lead time to 05Z settlement
-            data[t, 29] = max(0.0, hours_back)
-            mask[t, 25:30] = 1.0
+            data[t, 23] = math.sin(2 * math.pi * hour_frac / 24.0)
+            data[t, 24] = math.cos(2 * math.pi * hour_frac / 24.0)
+            data[t, 25] = math.sin(2 * math.pi * doy / 365.25)
+            data[t, 26] = math.cos(2 * math.pi * doy / 365.25)
+            data[t, 27] = max(0.0, hours_back)  # lead time to settlement
+            mask[t, 23:28] = 1.0
 
-        # NWP spread (feature 32): gfs_temp - ecmwf_temp
+        # ── Derived features (features 28-29): temp_change_1h, dewpoint_change_1h ──
+        # (moved from features 30-31 after compacting)
+
+        # NWP spread (feature 30): gfs_temp - ecmwf_temp
         if mask[:, 8].sum() > 0 and mask[:, 11].sum() > 0:
-            data[:, 32] = data[:, 8] - data[:, 11]
-            mask[:, 32] = mask[:, 8] * mask[:, 11]
+            data[:, 30] = data[:, 8] - data[:, 11]
+            mask[:, 30] = mask[:, 8] * mask[:, 11]
 
         return {'data': data, 'mask': mask}
 
@@ -655,14 +708,14 @@ class MultiResolutionWeatherDataset(Dataset):
                 n_fill = len(indices)
                 off = COARSE_SEQ_LEN - n_fill
 
-                data[off:, 0] = torch.from_numpy(gfs['temperature_2m'][indices])
-                data[off:, 1] = torch.from_numpy(gfs['dewpoint_2m'][indices])
+                data[off:, 0] = torch.from_numpy(gfs['temperature_2m'][indices]) * 9.0/5.0 + 32.0  # C→F
+                data[off:, 1] = torch.from_numpy(gfs['dewpoint_2m'][indices]) * 9.0/5.0 + 32.0   # C→F
                 data[off:, 2] = torch.from_numpy(gfs['windspeed_10m'][indices])
-                # wind_dir not in nwp_forecast_archive for gfs_seamless; leave as 0
-                mask[off:, :3] = 1.0
+                data[off:, 3] = torch.from_numpy(gfs['surface_pressure'][indices])
+                mask[off:, :4] = 1.0
 
-        # ECMWF: temp, dewpoint, wind_speed, pressure (features 8-11)
-        ecmwf = self.nwp_by_model.get('ecmwf_ifs025')
+        # ECMWF: temp, dewpoint, wind_speed, pressure (features 4-7)
+        ecmwf = self.nwp_by_model.get('ecmwf_ifs04')
         if ecmwf is not None and len(ecmwf['ts']) > 0:
             start_np = np.datetime64(start_time.tz_localize(None))
             anchor_np = np.datetime64(anchor.tz_localize(None))
@@ -672,13 +725,13 @@ class MultiResolutionWeatherDataset(Dataset):
                 indices = indices[::3][-COARSE_SEQ_LEN:]
                 n_fill = len(indices)
                 off = COARSE_SEQ_LEN - n_fill
-                data[off:, 8] = torch.from_numpy(ecmwf['temperature_2m'][indices])
-                data[off:, 9] = torch.from_numpy(ecmwf['dewpoint_2m'][indices])
-                data[off:, 10] = torch.from_numpy(ecmwf['windspeed_10m'][indices])
-                data[off:, 11] = torch.from_numpy(ecmwf['surface_pressure'][indices])
-                mask[off:, 8:12] = 1.0
+                data[off:, 4] = torch.from_numpy(ecmwf['temperature_2m'][indices]) * 9.0/5.0 + 32.0  # C→F
+                data[off:, 5] = torch.from_numpy(ecmwf['dewpoint_2m'][indices]) * 9.0/5.0 + 32.0     # C→F
+                data[off:, 6] = torch.from_numpy(ecmwf['windspeed_10m'][indices])
+                data[off:, 7] = torch.from_numpy(ecmwf['surface_pressure'][indices])
+                mask[off:, 4:8] = 1.0
 
-        # MOS: max_temp, min_temp, pop (features 12-14)
+        # MOS: max_temp, min_temp, pop (features 8-10)
         mos = self.mos_by_station.get('KMIA')
         if mos is not None and len(mos['ts']) > 0:
             start_np = np.datetime64(start_time.tz_localize(None))
@@ -689,41 +742,26 @@ class MultiResolutionWeatherDataset(Dataset):
                 indices = indices[::3][-COARSE_SEQ_LEN:]
                 n_fill = len(indices)
                 off = COARSE_SEQ_LEN - n_fill
-                data[off:, 12] = torch.from_numpy(mos['max_temp_f'][indices])
-                data[off:, 13] = torch.from_numpy(mos['min_temp_f'][indices])
-                data[off:, 14] = torch.from_numpy(mos['pop_pct'][indices])
-                mask[off:, 12:15] = 1.0
+                data[off:, 8] = torch.from_numpy(mos['max_temp_f'][indices])
+                data[off:, 9] = torch.from_numpy(mos['min_temp_f'][indices])
+                data[off:, 10] = torch.from_numpy(mos['pop_pct'][indices])
+                mask[off:, 8:11] = 1.0
 
-        # Upper air (features 15-19): T850, T925, CAPE, PW, lifted_index
-        if len(self.sounding_df) > 0:
-            start_np = np.datetime64(start_time.tz_localize(None))
-            anchor_np = np.datetime64(anchor.tz_localize(None))
-            snd_ts = self.sounding_df['ts'].values
-            idx_mask = (snd_ts >= start_np) & (snd_ts < anchor_np)
-            indices = np.where(idx_mask)[0]
-            if len(indices) > 0:
-                indices = indices[-COARSE_SEQ_LEN:]
-                n_fill = len(indices)
-                off = COARSE_SEQ_LEN - n_fill
-                snd = self.sounding_df.iloc[indices]
-                data[off:, 15] = torch.tensor(snd['t850_temp_c'].fillna(15.0).values, dtype=torch.float32)
-                data[off:, 16] = torch.tensor(snd['t925_temp_c'].fillna(20.0).values, dtype=torch.float32)
-                data[off:, 17] = torch.tensor(snd['cape'].fillna(0.0).values, dtype=torch.float32)
-                data[off:, 18] = torch.tensor(snd['precipitable_water_mm'].fillna(40.0).values, dtype=torch.float32)
-                data[off:, 19] = torch.tensor(snd['lifted_index'].fillna(0.0).values, dtype=torch.float32)
-                mask[off:, 15:20] = 1.0
+        # NOTE: Upper air soundings removed (only 150 rows out of 36K needed — too sparse)
 
-        # Time features (features 20-23): hour_sin, hour_cos, doy_sin, doy_cos
+        # Time features (features 11-16): hour_sin, hour_cos, doy_sin, doy_cos, lead_time, week_of_year
         for t in range(COARSE_SEQ_LEN):
             hours_back = (COARSE_SEQ_LEN - t) * 3
             slot_time = anchor - pd.Timedelta(hours=hours_back)
             hour_frac = slot_time.hour + slot_time.minute / 60.0
             doy = slot_time.dayofyear
-            data[t, 20] = math.sin(2 * math.pi * hour_frac / 24.0)
-            data[t, 21] = math.cos(2 * math.pi * hour_frac / 24.0)
-            data[t, 22] = math.sin(2 * math.pi * doy / 365.25)
-            data[t, 23] = math.cos(2 * math.pi * doy / 365.25)
-            mask[t, 20:24] = 1.0
+            data[t, 11] = math.sin(2 * math.pi * hour_frac / 24.0)
+            data[t, 12] = math.cos(2 * math.pi * hour_frac / 24.0)
+            data[t, 13] = math.sin(2 * math.pi * doy / 365.25)
+            data[t, 14] = math.cos(2 * math.pi * doy / 365.25)
+            data[t, 15] = max(0.0, hours_back)  # lead time
+            data[t, 16] = float(slot_time.isocalendar()[1]) / 52.0  # week of year
+            mask[t, 11:17] = 1.0
 
         return {'data': data, 'mask': mask}
 
@@ -808,8 +846,9 @@ class MultiResolutionWeatherDataset(Dataset):
             idx_mask = (gfs['ts'] >= date_start) & (gfs['ts'] < date_end)
             indices = np.where(idx_mask)[0]
             if len(indices) > 0:
-                gfs_max = float(np.max(gfs['temperature_2m'][indices]))
-                targets['nwp_bias'] = targets['daily_max'] - gfs_max
+                gfs_max_c = float(np.max(gfs['temperature_2m'][indices]))
+                gfs_max_f = gfs_max_c * 9.0/5.0 + 32.0  # C→F
+                targets['nwp_bias'] = targets['daily_max'] - gfs_max_f
 
         # Regime: -1 (unknown, HDP discovers online)
         targets['regime'] = -1

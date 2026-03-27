@@ -345,10 +345,10 @@ class WeatherBrainV3(nn.Module):
         result.update(task_result)
 
         # Bracket cross-entropy
-        if "bracket_targets" in targets:
+        if "bracket_target" in targets:
             bracket_loss = F.kl_div(
                 outputs["bracket_probs"].log().clamp(min=-10),
-                targets["bracket_targets"],
+                targets["bracket_target"],
                 reduction="batchmean",
             )
             result["bracket_loss"] = bracket_loss
@@ -420,8 +420,9 @@ class WeatherBrainV3(nn.Module):
             wind_dirs=wind_dirs,
         )
 
-        # Direct softmax bracket probabilities
-        softmax_probs = outputs["bracket_probs"][0].cpu().tolist()
+        # Direct softmax bracket probabilities (apply softmax here; heads return raw logits)
+        bracket_probs = F.softmax(outputs["predictions"]["bracket_probs"], dim=-1)
+        softmax_probs = bracket_probs[0].cpu().tolist()
 
         # Flow matching bracket probabilities
         flow_probs = self.flow_matching.bracket_probabilities(
@@ -530,12 +531,20 @@ class WeatherBrainV3Ensemble(nn.Module):
         }
 
     def state_dict(self, *args, **kwargs):
-        sd = super().state_dict(*args, **kwargs)
-        sd['_ensemble_seeds'] = [
+        """Return state_dict without non-tensor entries.
+
+        Ensemble seeds are stored separately as metadata when saving
+        checkpoints (see save/load helpers) rather than polluting the
+        state_dict with plain Python lists that break load_state_dict().
+        """
+        return super().state_dict(*args, **kwargs)
+
+    def get_ensemble_seeds(self) -> list[int]:
+        """Return ensemble seeds as separate metadata for checkpoint saving."""
+        return [
             getattr(m, 'seed', self.config.ensemble_seed_base + i)
             for i, m in enumerate(self.members)
         ]
-        return sd
 
     @torch.no_grad()
     def predict_brackets(
