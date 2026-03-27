@@ -55,32 +55,63 @@ except ImportError:
 # Configuration
 # ──────────────────────────────────────────────────────────────────
 
-# Spatial box covering South FL + surrounding ocean
-# Covers all 20 model stations plus Gulf Stream SST zone
-AREA = [28, -83, 24, -79]  # [North, West, South, East]
+# Spatial box covering all FL stations + ocean (for grid download mode)
+AREA = [31, -85, 24, -79]  # [North, West, South, East]
 
-# Station coordinates for nearest-grid-point extraction
+# All 46 observation locations: 33 ASOS + 10 FAWN + 3 Buoys
+# Coordinates verified from FAA AIP (ASOS), FAWN/IFAS (FAWN), NDBC (buoys)
 STATIONS = {
-    "KMIA": (25.793, -80.291),
-    "KFLL": (26.073, -80.153),
-    "KPBI": (26.683, -80.096),
-    "KHWO": (26.001, -80.241),
-    "KOPF": (25.907, -80.279),
-    "KFXE": (26.197, -80.170),
-    "KBCT": (26.379, -80.108),
-    "KTMB": (25.648, -80.433),
-    "KHST": (25.487, -80.383),
-    "KEYW": (24.556, -81.760),
-    "KAPF": (26.152, -81.775),
-    "KRSW": (26.536, -81.755),
-    "KFMY": (26.586, -81.863),
-    "KOBE": (26.269, -81.443),
-    "KSPG": (27.765, -82.627),
-    "KMLB": (28.102, -80.645),
-    "KMCO": (28.430, -81.309),
-    "KDAB": (29.180, -81.058),
-    "KSFB": (28.778, -81.244),
-    "KTLH": (30.397, -84.350),
+    # ── 33 ASOS stations (FAA-verified coordinates) ──────────────
+    "KMIA": (25.7954, -80.2901),   # Miami International
+    "KFLL": (26.0717, -80.1497),   # Fort Lauderdale-Hollywood
+    "KPBI": (26.6832, -80.0956),   # Palm Beach International
+    "KHWO": (26.0013, -80.2407),   # North Perry
+    "KOPF": (25.9074, -80.2782),   # Opa-locka Executive
+    "KFXE": (26.1973, -80.1707),   # Fort Lauderdale Executive
+    "KBCT": (26.3785, -80.1077),   # Boca Raton
+    "KTMB": (25.6476, -80.4332),   # Kendall-Tamiami Executive
+    "KHST": (25.4886, -80.3836),   # Homestead ARB
+    "KEYW": (24.5561, -81.7600),   # Key West International
+    "KAPF": (26.1524, -81.7756),   # Naples Municipal
+    "KRSW": (26.5362, -81.7552),   # Southwest Florida International
+    "KFMY": (26.5866, -81.8632),   # Page Field (Fort Myers)
+    "KOBE": (27.2666, -80.8504),   # Okeechobee County
+    "KSPG": (27.7651, -82.6269),   # Albert Whitted (St Pete)
+    "KMLB": (28.1027, -80.6453),   # Melbourne Orlando International
+    "KMCO": (28.4294, -81.3090),   # Orlando International
+    "KSFB": (28.7772, -81.2349),   # Orlando Sanford
+    "KTPA": (27.9755, -82.5332),   # Tampa International
+    "KPGD": (26.9186, -81.9909),   # Punta Gorda
+    "KVRB": (27.6556, -80.4180),   # Vero Beach Regional
+    "KSRQ": (27.3954, -82.5544),   # Sarasota-Bradenton
+    "KSEF": (27.4564, -81.3424),   # Sebring Regional
+    "KNQX": (24.5746, -81.6866),   # NAS Key West
+    "KMTH": (24.7262, -81.0514),   # Marathon (Florida Keys)
+    "KFPR": (27.4975, -80.3726),   # Fort Pierce / St Lucie County
+    "KPIE": (27.9086, -82.6865),   # St Pete-Clearwater
+    "KSUA": (27.1817, -80.2213),   # Witham Field (Stuart)
+    "KORL": (28.5455, -81.3329),   # Orlando Executive
+    "KPMP": (26.2474, -80.1111),   # Pompano Beach Airpark
+    "KLAL": (27.9876, -82.0190),   # Lakeland Linder
+    "KBOW": (27.9434, -81.7834),   # Bartow Executive
+    "KIMM": (26.4337, -81.4005),   # Immokalee Regional
+
+    # ── 10 FAWN agricultural stations (IFAS-verified coordinates) ─
+    "FAWN_405": (26.7391, -81.0528),   # Clewiston
+    "FAWN_410": (26.6568, -80.6300),   # Belle Glade
+    "FAWN_420": (26.0853, -80.2405),   # Ft. Lauderdale (TREC)
+    "FAWN_425": (26.6808, -80.3006),   # Wellington
+    "FAWN_430": (27.4271, -80.4054),   # Ft. Pierce (Indian River)
+    "FAWN_435": (27.3378, -80.6192),   # St. Lucie West
+    "FAWN_440": (25.5126, -80.5031),   # Homestead (TREC)
+    "FAWN_450": (26.4623, -81.4403),   # Immokalee (SWFREC)
+    "FAWN_455": (27.3306, -80.8514),   # Okeechobee
+    "FAWN_460": (26.9248, -81.3146),   # Palmdale
+
+    # ── 3 NDBC/NOS buoy stations (coastal marine) ────────────────
+    "VAKF1": (25.7314, -80.1620),   # Virginia Key, Biscayne Bay
+    "FWYF1": (25.5906, -80.0969),   # Fowey Rocks (offshore Miami)
+    "LKWF1": (26.6128, -80.0339),   # Lake Worth Pier
 }
 
 # ERA5 single-level variables (maps to our model features)
