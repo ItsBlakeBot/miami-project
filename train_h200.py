@@ -227,7 +227,18 @@ class CombinedOptimizer(torch.optim.Optimizer):
 
     def step(self, closure=None):
         if self.mu:
+            # Muon crashes on params with None gradients (unused in forward pass).
+            # Temporarily set None grads to zero so Muon's Newton-Schulz doesn't fail.
+            none_grad_params = []
+            for group in self.mu.param_groups:
+                for p in group["params"]:
+                    if p.grad is None:
+                        p.grad = torch.zeros_like(p)
+                        none_grad_params.append(p)
             self.mu.step()
+            # Clear the dummy grads to avoid polluting future backward passes
+            for p in none_grad_params:
+                p.grad = None
         self.adamw.step()
 
     def zero_grad(self, set_to_none=False):
