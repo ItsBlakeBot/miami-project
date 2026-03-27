@@ -124,9 +124,13 @@ class MultiTaskHeads(nn.Module):
 
     @property
     def task_weights(self) -> Tensor:
-        """Normalized task weights. Shape (N_TASKS,)."""
+        """Normalized task weights with safety clamp. Shape (N_TASKS,)."""
         w = torch.exp(self.log_weights)
-        return w / w.sum() * N_TASKS  # normalize to sum = N_TASKS
+        w = w / w.sum() * N_TASKS  # normalize to sum = N_TASKS
+        # Safety clamp: no task gets more than 3x average weight
+        # Prevents GradNorm from giving flow/bracket 10x weight and nuking training
+        w = torch.clamp(w, min=0.1, max=3.0)
+        return w
 
     def forward(self, x: Tensor) -> dict[str, Tensor]:
         """Compute all task predictions.
