@@ -35,7 +35,7 @@ log = logging.getLogger(__name__)
 # ── Feature counts (must match WB3Config) ──────────────────────────────
 N_FINE_FEATURES = 18      # 10 weather + 4 time + 2 lightning + 2 radar
 N_MEDIUM_FEATURES = 36    # 8 ASOS + 3 GFS + 3 ECMWF + 4 HRRR + 2 buoy + 3 MOS(temp,wind,pop) + 5 time + 2 derived + 1 spread + 5 buffer
-N_COARSE_FEATURES = 24    # 4 GFS + 4 ECMWF + 3 MOS(temp,wind,pop) + 6 time + 6 teleconnections
+N_COARSE_FEATURES = 33    # 4 GFS + 4 ECMWF + 3 MOS + 6 pressure_winds + 6 time + 6 teleconnections + 4 soundings
 
 FINE_SEQ_LEN = 32         # 8 hours × 4 per hour
 MEDIUM_SEQ_LEN = 96       # 96 hours
@@ -263,6 +263,21 @@ class MultiResolutionWeatherDataset(Dataset):
             log.warning("    upper_air_soundings not found — coarse branch will use NWP only")
             self.sounding_df = pd.DataFrame()
 
+        # Pressure level winds (925hPa + 850hPa)
+        log.info("  Loading pressure_level_winds...")
+        try:
+            self.pressure_winds_df = pd.read_sql_query(
+                "SELECT timestamp_utc, temp_925_c, wind_speed_925_ms, wind_dir_925, "
+                "temp_850_c, wind_speed_850_ms, wind_dir_850 "
+                "FROM pressure_level_winds ORDER BY timestamp_utc",
+                conn,
+            )
+            self.pressure_winds_df['ts'] = pd.to_datetime(self.pressure_winds_df['timestamp_utc'])
+            log.info(f"    {len(self.pressure_winds_df)} rows")
+        except Exception:
+            log.warning("    pressure_level_winds not found — coarse pressure features unavailable")
+            self.pressure_winds_df = pd.DataFrame()
+
         # Teleconnection indices (daily, slow-varying)
         log.info("  Loading teleconnection_indices...")
         try:
@@ -472,6 +487,35 @@ class MultiResolutionWeatherDataset(Dataset):
                 }
         else:
             self.teleconnection_by_date = {}
+
+        # Pressure level winds: sorted timestamps + data
+        if hasattr(self, 'pressure_winds_df') and len(self.pressure_winds_df) > 0:
+            pw = self.pressure_winds_df.sort_values('ts')
+            self.pressure_winds_idx = {
+                'ts': pw['ts'].values,
+                'temp_925_c': pw['temp_925_c'].fillna(20.0).values.astype(np.float32),
+                'wind_speed_925_ms': pw['wind_speed_925_ms'].fillna(5.0).values.astype(np.float32),
+                'wind_dir_925': pw['wind_dir_925'].fillna(180.0).values.astype(np.float32),
+                'temp_850_c': pw['temp_850_c'].fillna(15.0).values.astype(np.float32),
+                'wind_speed_850_ms': pw['wind_speed_850_ms'].fillna(5.0).values.astype(np.float32),
+                'wind_dir_850': pw['wind_dir_850'].fillna(180.0).values.astype(np.float32),
+            }
+        else:
+            self.pressure_winds_idx = None
+
+        # Upper air soundings: date -> dict
+        if hasattr(self, 'sounding_df') and len(self.sounding_df) > 0:
+            self.sounding_by_date = {}
+            for _, row in self.sounding_df.iterrows():
+                date_key = row['ts'].strftime('%Y-%m-%d')
+                self.sounding_by_date[date_key] = {
+                    'cape': float(row['cape']) if pd.notna(row.get('cape')) else 0.0,
+                    'lifted_index': float(row['lifted_index']) if pd.notna(row.get('lifted_index')) else 0.0,
+                    'precipitable_water_mm': float(row['precipitable_water_mm']) if pd.notna(row.get('precipitable_water_mm')) else 30.0,
+                    't850_temp_c': float(row['t850_temp_c']) if pd.notna(row.get('t850_temp_c')) else 15.0,
+                }
+        else:
+            self.sounding_by_date = {}
 
     def _build_samples(self, conn: sqlite3.Connection) -> None:
         """Build list of sample dates filtered by split."""
@@ -897,42 +941,72 @@ class MultiResolutionWeatherDataset(Dataset):
                 data[off:, 10] = torch.from_numpy(mos['pop_pct'][indices])
                 mask[off:, 8:11] = 1.0
 
-        # NOTE: Upper air soundings removed (only 150 rows out of 36K needed — too sparse)
+        # Pressure level winds (features 11-16): 925hPa + 850hPa
+        if self.pressure_winds_idx is not None and len(self.pressure_winds_idx['ts']) > 0:
+            pw = self.pressure_winds_idx
+            start_np = np.datetime64(start_time.tz_localize(None))
+            anchor_np = np.datetime64(anchor.tz_localize(None))
+            idx_mask = (pw['ts'] >= start_np) & (pw['ts'] < anchor_np)
+            indices = np.where(idx_mask)[0]
+            if len(indices) > 0:
+                indices = indices[::3][-COARSE_SEQ_LEN:]
+                n_fill = len(indices)
+                off = COARSE_SEQ_LEN - n_fill
+                data[off:, 11] = torch.from_numpy(pw['temp_925_c'][indices]) * 9.0/5.0 + 32.0  # C→F
+                data[off:, 12] = torch.from_numpy(pw['wind_speed_925_ms'][indices])
+                data[off:, 13] = torch.from_numpy(pw['wind_dir_925'][indices]) / 360.0  # normalize to [0,1]
+                data[off:, 14] = torch.from_numpy(pw['temp_850_c'][indices]) * 9.0/5.0 + 32.0  # C→F
+                data[off:, 15] = torch.from_numpy(pw['wind_speed_850_ms'][indices])
+                data[off:, 16] = torch.from_numpy(pw['wind_dir_850'][indices]) / 360.0
+                mask[off:, 11:17] = 1.0
 
-        # Time features (features 11-16): hour_sin, hour_cos, doy_sin, doy_cos, lead_time, week_of_year
+        # Time features (features 17-22): hour_sin, hour_cos, doy_sin, doy_cos, lead_time, week_of_year
         for t in range(COARSE_SEQ_LEN):
             hours_back = (COARSE_SEQ_LEN - t) * 3
             slot_time = anchor - pd.Timedelta(hours=hours_back)
             hour_frac = slot_time.hour + slot_time.minute / 60.0
             doy = slot_time.dayofyear
-            data[t, 11] = math.sin(2 * math.pi * hour_frac / 24.0)
-            data[t, 12] = math.cos(2 * math.pi * hour_frac / 24.0)
-            data[t, 13] = math.sin(2 * math.pi * doy / 365.25)
-            data[t, 14] = math.cos(2 * math.pi * doy / 365.25)
-            data[t, 15] = max(0.0, hours_back)  # lead time
-            data[t, 16] = float(slot_time.isocalendar()[1]) / 52.0  # week of year
-            mask[t, 11:17] = 1.0
+            data[t, 17] = math.sin(2 * math.pi * hour_frac / 24.0)
+            data[t, 18] = math.cos(2 * math.pi * hour_frac / 24.0)
+            data[t, 19] = math.sin(2 * math.pi * doy / 365.25)
+            data[t, 20] = math.cos(2 * math.pi * doy / 365.25)
+            data[t, 21] = max(0.0, hours_back)  # lead time
+            data[t, 22] = float(slot_time.isocalendar()[1]) / 52.0  # week of year
+            mask[t, 17:23] = 1.0
 
-        # Teleconnection indices (features 18-23): slow-varying, same value for entire window
-        # enso_oni, nao, pna, mjo_phase, mjo_amplitude, amo
+        # Teleconnection indices (features 23-28): slow-varying, same value for entire window
         if len(self.teleconnection_by_date) > 0:
-            # Use the anchor date to find the teleconnection values
             date_str = anchor.strftime('%Y-%m-%d')
             tele = self.teleconnection_by_date.get(date_str)
-            # If exact date not found, try the most recent prior date
             if tele is None:
                 tele_dates = sorted(self.teleconnection_by_date.keys())
                 prior = [d for d in tele_dates if d <= date_str]
                 if prior:
                     tele = self.teleconnection_by_date[prior[-1]]
             if tele is not None:
-                data[:, 18] = tele['enso_oni']
-                data[:, 19] = tele['nao']
-                data[:, 20] = tele['pna']
-                data[:, 21] = tele['mjo_phase']
-                data[:, 22] = tele['mjo_amplitude']
-                data[:, 23] = tele['amo']
-                mask[:, 18:24] = 1.0
+                data[:, 23] = tele['enso_oni']
+                data[:, 24] = tele['nao']
+                data[:, 25] = tele['pna']
+                data[:, 26] = tele['mjo_phase']
+                data[:, 27] = tele['mjo_amplitude']
+                data[:, 28] = tele['amo']
+                mask[:, 23:29] = 1.0
+
+        # Upper air soundings (features 29-32): CAPE, lifted_index, precipitable_water, t850
+        if len(self.sounding_by_date) > 0:
+            date_str = anchor.strftime('%Y-%m-%d')
+            snd = self.sounding_by_date.get(date_str)
+            if snd is None:
+                snd_dates = sorted(self.sounding_by_date.keys())
+                prior = [d for d in snd_dates if d <= date_str]
+                if prior:
+                    snd = self.sounding_by_date[prior[-1]]
+            if snd is not None:
+                data[:, 29] = snd['cape'] / 1000.0  # scale CAPE (0-5000 J/kg → 0-5)
+                data[:, 30] = snd['lifted_index']    # typically -10 to +10
+                data[:, 31] = snd['precipitable_water_mm'] / 50.0  # scale (0-75mm → 0-1.5)
+                data[:, 32] = snd['t850_temp_c'] * 9.0/5.0 + 32.0  # C→F
+                mask[:, 29:33] = 1.0
 
         return {'data': data, 'mask': mask}
 

@@ -132,7 +132,7 @@ class WB3Config:
         n_layers=12, dropout=0.10, seq_len=96,
     ))
     coarse_branch: MambaBranchConfig = field(default_factory=lambda: MambaBranchConfig(
-        d_input=24, d_model=512, d_state=64, d_conv=4, expand=2,
+        d_input=33, d_model=512, d_state=64, d_conv=4, expand=2,
         n_layers=6, dropout=0.10, seq_len=112,
     ))
 
@@ -146,7 +146,7 @@ class WB3Config:
     # ── Feature masking ───────────────────────────────────────────
     n_features_fine: int = 18
     n_features_medium: int = 36
-    n_features_coarse: int = 24
+    n_features_coarse: int = 33
 
     # ── Training ──────────────────────────────────────────────────
     learning_rate: float = 3e-4

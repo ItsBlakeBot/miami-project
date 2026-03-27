@@ -88,6 +88,17 @@ class MultiTaskHeads(nn.Module):
         self.head_nwp_bias = nn.Linear(d, 1)
         self.head_regime = nn.Linear(d, config.n_regimes)  # classification
 
+        # ── Initialize regression head biases to target means ────
+        # Prevents gradient explosion: initial predictions are in the
+        # right ballpark (~85°F for daily_max) instead of ~0.
+        # No target normalization needed — raw Fahrenheit throughout.
+        with torch.no_grad():
+            self.head_daily_max.bias.fill_(85.0)       # Miami avg daily high
+            self.head_daily_min.bias.fill_(70.0)        # Miami avg daily low
+            self.head_next_hour_temp.bias.fill_(80.0)   # Miami avg temp
+            self.head_nwp_bias.bias.fill_(0.0)          # Bias centered at 0
+            # max_hour/min_hour use sigmoid*24 → bias=0 gives ~12h, fine
+
         # ── GradNorm adaptive weights ─────────────────────────────
         # Stored as log-weights to ensure positivity via exp()
         self.log_weights = nn.Parameter(torch.zeros(N_TASKS))
@@ -198,11 +209,15 @@ class MultiTaskHeads(nn.Module):
         """
         losses = {}
 
-        # Regression tasks: MSE loss
+        # Regression tasks: MSE loss (skip NaN targets)
         for name in ["daily_max", "daily_min", "max_hour", "min_hour",
                       "next_hour_temp", "nwp_bias"]:
             if name in targets:
-                losses[name] = F.mse_loss(predictions[name], targets[name])
+                t = targets[name]
+                p = predictions[name]
+                valid = ~torch.isnan(t) & ~torch.isinf(t)
+                if valid.any():
+                    losses[name] = F.mse_loss(p[valid], t[valid])
 
         # Bracket probs (HIGH): handle both scalar index (-1=unknown) and distribution targets
         if "bracket_target" in targets:
