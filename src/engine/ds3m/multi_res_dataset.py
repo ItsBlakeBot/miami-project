@@ -170,10 +170,11 @@ class MultiResolutionWeatherDataset(Dataset):
         log.info("  Loading hrrr_archive...")
         try:
             self.hrrr_archive_df = pd.read_sql_query(
-                "SELECT timestamp_utc, temperature_2m, dewpoint_2m, "
-                "windspeed_10m, winddirection_10m, cape, surface_pressure, "
-                "cloudcover, shortwave_radiation "
-                "FROM hrrr_archive ORDER BY timestamp_utc",
+                "SELECT model_run_utc AS timestamp_utc, temperature_2m, dewpoint_2m, "
+                "wind_speed_10m AS windspeed_10m, wind_direction_10m AS winddirection_10m, "
+                "cape, surface_pressure, "
+                "cloud_cover AS cloudcover, shortwave_radiation "
+                "FROM hrrr_archive WHERE station='KMIA' ORDER BY model_run_utc",
                 conn,
             )
             self.hrrr_archive_df['ts'] = pd.to_datetime(self.hrrr_archive_df['timestamp_utc'])
@@ -187,7 +188,7 @@ class MultiResolutionWeatherDataset(Dataset):
         self.mos_df = pd.read_sql_query(
             "SELECT station, model, valid_time_utc, max_temp_f, min_temp_f, "
             "temp_f, wind_speed_kt, pop_pct "
-            "FROM mos_forecasts ORDER BY valid_time_utc",
+            "FROM mos_forecasts WHERE station='KMIA' ORDER BY valid_time_utc",
             conn,
         )
         self.mos_df['ts'] = pd.to_datetime(self.mos_df['valid_time_utc'])
