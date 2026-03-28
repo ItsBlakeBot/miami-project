@@ -343,9 +343,12 @@ def log_gpu_info(log, device, world_size):
         log.info("Using CPU")
 
 
-def build_dataloader(dataset, batch_size, world_size, local_rank, shuffle=True):
+def build_dataloader(dataset, batch_size, world_size, local_rank, shuffle=True,
+                     collate_fn=None):
     """Build DataLoader with DistributedSampler when using DDP."""
-    from engine.ds3m.multi_res_dataset import _collate_multi_res
+    if collate_fn is None:
+        from engine.ds3m.multi_res_dataset import _collate_multi_res
+        collate_fn = _collate_multi_res
 
     sampler = None
     if world_size > 1:
@@ -356,7 +359,7 @@ def build_dataloader(dataset, batch_size, world_size, local_rank, shuffle=True):
     loader = DataLoader(
         dataset, batch_size=batch_size, sampler=sampler,
         shuffle=(shuffle and sampler is None), drop_last=True,
-        num_workers=4, pin_memory=True, collate_fn=_collate_multi_res,
+        num_workers=0, pin_memory=True, collate_fn=collate_fn,
     )
     return loader, sampler
 
@@ -1344,6 +1347,12 @@ def backtest_weather(models, dataset, device, bf16, output_dir, log):
     log.info(f"    spatial_state: {frozen_signals['spatial_state'].shape}")
 
 
+def _trading_collate(batch):
+    """Simple collate for trading dataset — just stack tensors by key."""
+    keys = batch[0].keys()
+    return {k: torch.stack([b[k] for b in batch]) for k in keys}
+
+
 def train_trading_phase1_decision(model, dataset, device, bf16, config,
                                    local_rank, world_size, log):
     """Phase 4: Decision Mamba offline pre-training."""
@@ -1356,8 +1365,13 @@ def train_trading_phase1_decision(model, dataset, device, bf16, config,
     lr = config.get("decision_lr", 1e-3)
 
     raw_model = get_raw_model(model)
-    optimizer = CombinedOptimizer(raw_model, weight_decay=0.01)
-    loader, sampler = build_dataloader(dataset, batch_size, world_size, local_rank)
+    # AdamW only for trading brain — no Muon complexity needed
+    optimizer = torch.optim.AdamW(raw_model.parameters(), lr=lr, weight_decay=0.01)
+    loader, sampler = build_dataloader(
+        dataset, batch_size, world_size, local_rank, collate_fn=_trading_collate
+    )
+
+    best_loss = float("inf")
 
     for epoch in range(epochs):
         if sampler is not None:
@@ -1369,11 +1383,10 @@ def train_trading_phase1_decision(model, dataset, device, bf16, config,
 
         for batch in loader:
             with torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=bf16):
-                # Bug 2.12: compute_decision_loss inline (method doesn't exist on TradingBrainV2)
-                states = batch.get("states", batch.get("candles")).to(device)
-                actions = batch.get("actions").to(device)
-                rewards = batch.get("rewards").to(device)
-                returns_to_go = batch.get("returns_to_go", rewards).to(device)
+                states = batch["states"].to(device)
+                actions = batch["actions"].to(device)
+                rewards = batch["rewards"].to(device)
+                returns_to_go = batch["returns_to_go"].to(device)
 
                 if hasattr(raw_model, "decision_mamba"):
                     predicted_actions = raw_model.decision_mamba(
@@ -1386,6 +1399,7 @@ def train_trading_phase1_decision(model, dataset, device, bf16, config,
 
                 loss = F.mse_loss(predicted_actions, actions)
 
+            # NaN guard + clamp
             loss = torch.nan_to_num(loss, nan=0.0, posinf=1e6, neginf=-1e6)
             if loss.item() == 0.0:
                 continue
@@ -1395,19 +1409,28 @@ def train_trading_phase1_decision(model, dataset, device, bf16, config,
             torch.nn.utils.clip_grad_norm_(raw_model.parameters(), max_norm=1.0)
             optimizer.step()
 
-            # Bug 2.13: Removed explicit update_biases() and maybe_clone_dead_experts()
-            # calls -- the forward pass already handles them internally.
-
             total_loss += loss.item()
             n_batches += 1
 
         elapsed = time.time() - t0
-        log.info(f"  Epoch {epoch}/{epochs} | loss: {total_loss / max(n_batches, 1):.4f} | {elapsed:.0f}s")
+        avg_loss = total_loss / max(n_batches, 1)
+        log.info(f"  Epoch {epoch}/{epochs} | loss: {avg_loss:.4f} | {elapsed:.0f}s")
+
+        # NaN auto-recovery
+        if avg_loss > 1e6 or np.isnan(avg_loss):
+            log.warning(f"  Trading brain explosion detected (loss={avg_loss:.2e})")
+            break
+
+        if avg_loss < best_loss and local_rank == 0:
+            best_loss = avg_loss
+            save_checkpoint(model, None, epoch, avg_loss,
+                            os.path.join(config.get("output_dir", "trained_weights"),
+                                         "trading_brain_decision.pt"))
 
     if local_rank == 0:
         save_checkpoint(model, None, epochs, total_loss / max(n_batches, 1),
                         os.path.join(config.get("output_dir", "trained_weights"),
-                                     "trading_brain_decision.pt"))
+                                     "trading_brain_decision_final.pt"))
 
 
 def train_trading_phase2_cql_sac(model, dataset, device, bf16, config,
@@ -1496,7 +1519,9 @@ def train_trading_phase2_cql_sac(model, dataset, device, bf16, config,
     actor_optimizer = torch.optim.AdamW(actor.parameters(), lr=lr, weight_decay=0.01)
     alpha_optimizer = torch.optim.AdamW([log_alpha_entropy], lr=lr)
 
-    loader, sampler = build_dataloader(dataset, batch_size, world_size, local_rank)
+    loader, sampler = build_dataloader(
+        dataset, batch_size, world_size, local_rank, collate_fn=_trading_collate
+    )
 
     for epoch in range(epochs):
         if sampler is not None:
